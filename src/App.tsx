@@ -73,6 +73,8 @@ const refreshNonceAtom = Atom.make(0).pipe(Atom.keepAlive)
 const filterQueryAtom = Atom.make("").pipe(Atom.keepAlive)
 const filterDraftAtom = Atom.make("").pipe(Atom.keepAlive)
 const filterModeAtom = Atom.make(false).pipe(Atom.keepAlive)
+const pendingGAtom = Atom.make(false).pipe(Atom.keepAlive)
+const detailFullViewAtom = Atom.make(false).pipe(Atom.keepAlive)
 
 const shortRepoName = (repository: string) => repository.split("/")[1] ?? repository
 
@@ -340,20 +342,19 @@ const TextLine = ({ children, fg = colors.text, bg }: { children: React.ReactNod
 )
 
 const SectionTitle = ({ title }: { title: string }) => (
-	<>
-		<TextLine>
-			<span fg={colors.accent} attributes={TextAttributes.BOLD}>
-				{title}
-			</span>
-		</TextLine>
-		<BlankRow />
-	</>
+	<TextLine>
+		<span fg={colors.accent} attributes={TextAttributes.BOLD}>
+			{title}
+		</span>
+	</TextLine>
 )
 
-const FooterHints = ({ showFilterClear }: { showFilterClear: boolean }) => (
+const FooterHints = ({ showFilterClear, detailFullView }: { showFilterClear: boolean; detailFullView: boolean }) => (
 	<TextLine>
 		<span fg={colors.count}>up/down</span>
 		<span fg={colors.muted}> move  </span>
+		<span fg={colors.count}>gg/G</span>
+		<span fg={colors.muted}> jump  </span>
 		<span fg={colors.count}>/</span>
 		<span fg={colors.muted}> filter  </span>
 		{showFilterClear ? (
@@ -362,6 +363,17 @@ const FooterHints = ({ showFilterClear }: { showFilterClear: boolean }) => (
 				<span fg={colors.muted}> clear  </span>
 			</>
 		) : null}
+		{detailFullView ? (
+			<>
+				<span fg={colors.count}>esc/enter</span>
+				<span fg={colors.muted}> list  </span>
+			</>
+		) : (
+			<>
+				<span fg={colors.count}>enter</span>
+				<span fg={colors.muted}> full  </span>
+			</>
+		)}
 		<span fg={colors.count}>r</span>
 		<span fg={colors.muted}> ref  </span>
 		<span fg={colors.count}>d</span>
@@ -613,6 +625,8 @@ export const App = () => {
 	const [filterQuery, setFilterQuery] = useAtom(filterQueryAtom)
 	const [filterDraft, setFilterDraft] = useAtom(filterDraftAtom)
 	const [filterMode, setFilterMode] = useAtom(filterModeAtom)
+	const [pendingG, setPendingG] = useAtom(pendingGAtom)
+	const [detailFullView, setDetailFullView] = useAtom(detailFullViewAtom)
 	const contentWidth = Math.max(60, width ?? 100)
 	const isWideLayout = (width ?? 100) >= 140
 	const splitGap = 1
@@ -625,6 +639,7 @@ export const App = () => {
 	const wideDetailLines = Math.max(8, Math.min(16, (height ?? 24) - 12))
 	const wideBodyHeight = Math.max(8, (height ?? 24) - 5)
 	const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const pendingGTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const headerFooterWidth = Math.max(24, contentWidth - 2)
 
 	const flashNotice = (message: string) => {
@@ -640,6 +655,9 @@ export const App = () => {
 	useEffect(() => () => {
 		if (noticeTimeoutRef.current !== null) {
 			clearTimeout(noticeTimeoutRef.current)
+		}
+		if (pendingGTimeoutRef.current !== null) {
+			clearTimeout(pendingGTimeoutRef.current)
 		}
 	}, [])
 
@@ -745,6 +763,13 @@ export const App = () => {
 			process.exit(0)
 		}
 
+		if (detailFullView) {
+			if (key.name === "escape" || key.name === "return" || key.name === "enter") {
+				setDetailFullView(false)
+				return
+			}
+		}
+
 		if (filterMode) {
 			if (key.name === "escape") {
 				setFilterDraft(filterQuery)
@@ -831,6 +856,37 @@ export const App = () => {
 			})
 			return
 		}
+		// Vim-style navigation: gg to go to top, G to go to bottom
+		if (key.name === "G" || key.name === "g" && key.shift) {
+			setSelectedIndex((current) => {
+				if (visiblePullRequests.length === 0) return 0
+				return visiblePullRequests.length - 1
+			})
+			return
+		}
+		if (key.name === "g") {
+			if (pendingG) {
+				// Second g - go to top
+				setSelectedIndex(0)
+				setPendingG(false)
+				if (pendingGTimeoutRef.current !== null) {
+					clearTimeout(pendingGTimeoutRef.current)
+					pendingGTimeoutRef.current = null
+				}
+			} else {
+				// First g - set pending and start timeout
+				setPendingG(true)
+				pendingGTimeoutRef.current = setTimeout(() => {
+					setPendingG(false)
+					pendingGTimeoutRef.current = null
+				}, 500)
+			}
+			return
+		}
+		if ((key.name === "return" || key.name === "enter") && !detailFullView) {
+			setDetailFullView(true)
+			return
+		}
 		if (key.name === "o" && selectedPullRequest) {
 			void Bun.spawn({ cmd: ["open", selectedPullRequest.url], stdout: "ignore", stderr: "ignore" })
 			flashNotice(`Opened #${selectedPullRequest.number} in browser`)
@@ -913,10 +969,35 @@ export const App = () => {
 						</scrollbox>
 					</box>
 				</box>
+			) : detailFullView ? (
+				<>
+					<DetailsPane
+						pullRequest={selectedPullRequest}
+						contentWidth={rightContentWidth}
+						bodyLines={Math.max(8, (height ?? 24) - 10)}
+						paneWidth={contentWidth}
+					/>
+					<Divider width={contentWidth} />
+					<box height={8} flexDirection="column">
+						<scrollbox height={8}>
+							<box paddingLeft={sectionPadding} paddingRight={sectionPadding}>
+								<PullRequestList
+									groups={visibleGroups}
+									selectedUrl={selectedPullRequest?.url ?? null}
+									status={pullRequestState.status}
+									error={pullRequestState.error}
+									contentWidth={leftContentWidth}
+									filterText={visibleFilterText}
+									showFilterBar={filterMode || filterQuery.length > 0}
+									isFilterEditing={filterMode}
+									onSelectPullRequest={selectPullRequestByUrl}
+								/>
+							</box>
+						</scrollbox>
+					</box>
+				</>
 			) : (
 				<>
-					<DetailsPane pullRequest={selectedPullRequest} contentWidth={rightContentWidth} paneWidth={contentWidth} />
-					<Divider width={contentWidth} />
 					<box flexGrow={1} flexDirection="column">
 						<scrollbox flexGrow={1}>
 							<box paddingLeft={sectionPadding} paddingRight={sectionPadding}>
@@ -934,12 +1015,14 @@ export const App = () => {
 							</box>
 						</scrollbox>
 					</box>
+					<Divider width={contentWidth} />
+					<DetailsPane pullRequest={selectedPullRequest} contentWidth={rightContentWidth} paneWidth={contentWidth} />
 				</>
 			)}
 
 			{isWideLayout ? <Divider width={contentWidth} junctionAt={dividerJunctionAt} junctionChar="┴" /> : <Divider width={contentWidth} />}
 			<box paddingLeft={1} paddingRight={1}>
-				{footerNotice ? <PlainLine text={footerNotice} fg={colors.count} /> : <FooterHints showFilterClear={filterMode || filterQuery.length > 0} />}
+				{footerNotice ? <PlainLine text={footerNotice} fg={colors.count} /> : <FooterHints showFilterClear={filterMode || filterQuery.length > 0} detailFullView={detailFullView} />}
 			</box>
 		</box>
 	)

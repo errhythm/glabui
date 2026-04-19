@@ -8,7 +8,7 @@
 		"ghui": "./src/index.tsx"
 	},
 	"scripts": {
-		"dev": "bun run src/index.tsx",
+		"dev": "bun --watch src/index.tsx",
 		"start": "bun run src/index.tsx",
 		"typecheck": "tsc --noEmit"
 	},
