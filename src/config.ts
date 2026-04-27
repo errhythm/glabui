@@ -1,4 +1,4 @@
-export const DEFAULT_REPOS = ["anomalyco/opencode", "Effect-TS/effect-smol", "anomalyco/opencode-console"] as const
+export const DEFAULT_REPOS: readonly string[] = []
 
 const splitCsv = (value: string | undefined): readonly string[] =>
 	value
