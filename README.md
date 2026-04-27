@@ -1,21 +1,25 @@
 # ghui
 
-Minimal terminal UI for browsing and acting on your open GitHub pull requests across repositories.
+Terminal UI for browsing and acting on your open GitHub pull requests across repositories.
 
-## Requirements
+## Install Locally
 
-- `bun`
-- `gh` authenticated with GitHub
-- macOS `open` and `pbcopy` for browser and clipboard actions
+Requires `bun` and an authenticated GitHub CLI (`gh auth login`).
 
-## Install
+Clone, install, and link:
 
 ```bash
+git clone https://github.com/kitlangton/ghui.git
+cd ghui
 bun install
 bun link
 ```
 
-Then run `ghui` from anywhere.
+Run from anywhere:
+
+```bash
+ghui
+```
 
 ## Configuration
 
@@ -29,13 +33,6 @@ GHUI_AUTHOR=@me ghui
 ```
 
 You can also copy `.env.example` to `.env` and edit the values locally.
-
-## Commands
-
-```bash
-bun run dev
-bun run typecheck
-```
 
 ## Keybindings
 
