@@ -1,5 +1,7 @@
 # ghui
 
+<img width="1420" height="856" alt="image" src="https://github.com/user-attachments/assets/5e560a4a-5887-4baa-a6d4-e1f4f0410c70" />
+
 Terminal UI for browsing and acting on your open GitHub pull requests across repositories.
 
 ## Install Locally
