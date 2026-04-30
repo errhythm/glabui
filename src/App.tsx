@@ -435,23 +435,104 @@ const pullRequestDiffKey = (pullRequest: PullRequestItem) => `${pullRequest.repo
 
 const diffStatText = (pullRequest: PullRequestItem) => {
 	const files = pullRequest.changedFiles === 1 ? "1 file" : `${pullRequest.changedFiles} files`
-	return `+${pullRequest.additions} -${pullRequest.deletions}  ${files}`
+	return [
+		pullRequest.additions > 0 ? `+${pullRequest.additions}` : null,
+		pullRequest.deletions > 0 ? `-${pullRequest.deletions}` : null,
+		files,
+	].filter((part): part is string => part !== null).join(" ")
 }
 
-const patchRenderableLineCount = (patch: string, view: "unified" | "split") => {
-	let count = 0
-	let inHunk = false
-	let deletions = 0
-	let additions = 0
+const DiffStats = ({ pullRequest }: { pullRequest: PullRequestItem }) => {
+	const files = pullRequest.changedFiles === 1 ? "1 file" : `${pullRequest.changedFiles} files`
+	type Part = { key: string; text: string; color: string }
+	const rawParts: Array<Part | null> = [
+		pullRequest.additions > 0 ? { key: "additions", text: `+${pullRequest.additions}`, color: colors.status.passing } : null,
+		pullRequest.deletions > 0 ? { key: "deletions", text: `-${pullRequest.deletions}`, color: colors.status.failing } : null,
+		{ key: "files", text: files, color: colors.muted },
+	]
+	const parts = rawParts.filter((part): part is Part => part !== null)
 
-	const flushChangeBlock = () => {
-		if (deletions === 0 && additions === 0) return
-		count += view === "split" ? Math.max(deletions, additions) : deletions + additions
-		deletions = 0
-		additions = 0
+	return (
+		<>
+			{parts.map((part, index) => (
+				<Fragment key={part.key}>
+					{index > 0 ? <span fg={colors.muted}> </span> : null}
+					<span fg={part.color}>{part.text}</span>
+				</Fragment>
+			))}
+		</>
+	)
+}
+
+const estimatedWrappedLineCount = (text: string, width: number, wrapMode: "none" | "word") => {
+	if (wrapMode === "none") return 1
+	return Math.max(1, Math.ceil(Bun.stringWidth(text) / Math.max(1, width)))
+}
+
+const patchLineNumberGutterWidth = (lines: readonly string[]) => {
+	let maxLineNumber = 1
+	let hasSigns = false
+	let oldLine = 0
+	let newLine = 0
+
+	for (const line of lines) {
+		const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+		if (hunk) {
+			oldLine = Number(hunk[1])
+			newLine = Number(hunk[2])
+			maxLineNumber = Math.max(maxLineNumber, oldLine, newLine)
+			continue
+		}
+
+		const firstChar = line[0]
+		if (firstChar === "-") {
+			hasSigns = true
+			maxLineNumber = Math.max(maxLineNumber, oldLine)
+			oldLine++
+		} else if (firstChar === "+") {
+			hasSigns = true
+			maxLineNumber = Math.max(maxLineNumber, newLine)
+			newLine++
+		} else if (firstChar === " ") {
+			maxLineNumber = Math.max(maxLineNumber, oldLine, newLine)
+			oldLine++
+			newLine++
+		}
 	}
 
-	for (const line of patch.split("\n")) {
+	const digits = Math.floor(Math.log10(maxLineNumber)) + 1
+	return Math.max(3, digits + 2) + (hasSigns ? 2 : 0)
+}
+
+const patchRenderableLineCount = (patch: string, view: "unified" | "split", wrapMode: "none" | "word", width: number) => {
+	const lines = patch.split("\n")
+	const lineNumberGutterWidth = patchLineNumberGutterWidth(lines)
+	const splitPaneWidth = Math.max(1, Math.floor(width / 2) - lineNumberGutterWidth)
+	const unifiedPaneWidth = Math.max(1, width - lineNumberGutterWidth)
+	const contentWidth = view === "split" ? splitPaneWidth : unifiedPaneWidth
+	let count = 0
+	let inHunk = false
+	let deletions: number[] = []
+	let additions: number[] = []
+
+	const flushChangeBlock = () => {
+		if (deletions.length === 0 && additions.length === 0) return
+		if (view === "split") {
+			const rows = Math.max(deletions.length, additions.length)
+			for (let index = 0; index < rows; index++) {
+				const deletionCount = index < deletions.length ? deletions[index]! : 1
+				const additionCount = index < additions.length ? additions[index]! : 1
+				count += Math.max(deletionCount, additionCount)
+			}
+		} else {
+			for (const deletion of deletions) count += deletion
+			for (const addition of additions) count += addition
+		}
+		deletions = []
+		additions = []
+	}
+
+	for (const line of lines) {
 		if (line.startsWith("@@")) {
 			flushChangeBlock()
 			inHunk = true
@@ -464,18 +545,18 @@ const patchRenderableLineCount = (patch: string, view: "unified" | "split") => {
 		if (firstChar === "\\") continue
 
 		if (firstChar === "-") {
-			deletions++
+			deletions.push(estimatedWrappedLineCount(line.slice(1), contentWidth, wrapMode))
 			continue
 		}
 
 		if (firstChar === "+") {
-			additions++
+			additions.push(estimatedWrappedLineCount(line.slice(1), contentWidth, wrapMode))
 			continue
 		}
 
 		if (firstChar === " ") {
 			flushChangeBlock()
-			count++
+			count += estimatedWrappedLineCount(line.slice(1), contentWidth, wrapMode)
 		}
 	}
 
@@ -1036,7 +1117,7 @@ const DetailHeader = ({
 				const review = reviewLabel(pullRequest)
 				const checks = pullRequest.checkSummary?.replace(/^checks\s+/, "")
 				const statusParts = [review, checks].filter((part): part is string => Boolean(part))
-				const rightSide = statusParts.length > 0 ? `${statusParts.join(" ")}  ${opened}` : opened
+				const rightSide = statusParts.length > 0 ? `${statusParts.join(" ")} ${opened}` : opened
 				const leftWidth = 1 + number.length + 1 + repo.length
 				const gap = Math.max(2, contentWidth - leftWidth - rightSide.length)
 
@@ -1048,7 +1129,7 @@ const DetailHeader = ({
 						{review ? <span fg={statusColor(pullRequest.reviewStatus)}>{review}</span> : null}
 						{review && checks ? <span fg={colors.muted}> </span> : null}
 						{checks ? <span fg={statusColor(pullRequest.checkStatus)}>{checks}</span> : null}
-						{statusParts.length > 0 ? <span fg={colors.muted}>  </span> : null}
+						{statusParts.length > 0 ? <span fg={colors.muted}> </span> : null}
 						<span fg={colors.muted}>{opened}</span>
 					</TextLine>
 				)
@@ -1070,10 +1151,7 @@ const DetailHeader = ({
 					{showStats ? (
 						<>
 							<span fg={colors.muted}>{" ".repeat(statsGap)}</span>
-							<span fg={colors.status.passing}>+{pullRequest.additions}</span>
-							<span fg={colors.muted}> </span>
-							<span fg={colors.status.failing}>-{pullRequest.deletions}</span>
-							<span fg={colors.muted}>  {pullRequest.changedFiles === 1 ? "1 file" : `${pullRequest.changedFiles} files`}</span>
+							<DiffStats pullRequest={pullRequest} />
 						</>
 					) : null}
 				</TextLine>
@@ -1241,6 +1319,14 @@ const PullRequestDiffPane = ({
 	loadingIndicator: string
 	scrollRef: React.Ref<ScrollBoxRenderable>
 }) => {
+	const readyFiles = diffState?.status === "ready" ? diffState.files : []
+	const safeIndex = readyFiles.length > 0 ? Math.max(0, Math.min(fileIndex, readyFiles.length - 1)) : 0
+	const file = readyFiles[safeIndex] ?? null
+	const diffHeight = useMemo(
+		() => file ? patchRenderableLineCount(file.patch, view, wrapMode, paneWidth) : 1,
+		[file?.patch, view, wrapMode, paneWidth],
+	)
+
 	if (!pullRequest) {
 		return <LoadingPane content={{ title: "No pull request selected", hint: "Press esc to go back" }} width={paneWidth} height={height} />
 	}
@@ -1258,10 +1344,7 @@ const PullRequestDiffPane = ({
 						<span fg={colors.count}>#{pullRequest.number}</span>
 						<span fg={colors.muted}> {shortRepoName(pullRequest.repository)}</span>
 						<span fg={colors.muted}>{" ".repeat(headerGap)}</span>
-						<span fg={colors.status.passing}>+{pullRequest.additions}</span>
-						<span fg={colors.muted}> </span>
-						<span fg={colors.status.failing}>-{pullRequest.deletions}</span>
-						<span fg={colors.muted}>  {pullRequest.changedFiles === 1 ? "1 file" : `${pullRequest.changedFiles} files`}</span>
+						<DiffStats pullRequest={pullRequest} />
 					</TextLine>
 				</box>
 				<Divider width={paneWidth} />
@@ -1282,15 +1365,12 @@ const PullRequestDiffPane = ({
 		)
 	}
 
-	if (diffState.files.length === 0) {
+	if (readyFiles.length === 0 || !file) {
 		return <LoadingPane content={{ title: "No diff", hint: "This PR has no patch contents" }} width={paneWidth} height={height} />
 	}
 
-	const safeIndex = Math.max(0, Math.min(fileIndex, diffState.files.length - 1))
-	const file = diffState.files[safeIndex]!
-	const fileCounter = `${safeIndex + 1}/${diffState.files.length}`
+	const fileCounter = `${safeIndex + 1}/${readyFiles.length}`
 	const fileNameWidth = Math.max(8, headerWidth - fileCounter.length - 2)
-	const diffHeight = patchRenderableLineCount(file.patch, view)
 
 	return (
 		<box height={height} flexDirection="column">
@@ -1299,10 +1379,7 @@ const PullRequestDiffPane = ({
 					<span fg={colors.count}>#{pullRequest.number}</span>
 					<span fg={colors.muted}> {shortRepoName(pullRequest.repository)}</span>
 					<span fg={colors.muted}>{" ".repeat(headerGap)}</span>
-					<span fg={colors.status.passing}>+{pullRequest.additions}</span>
-					<span fg={colors.muted}> </span>
-					<span fg={colors.status.failing}>-{pullRequest.deletions}</span>
-					<span fg={colors.muted}>  {pullRequest.changedFiles === 1 ? "1 file" : `${pullRequest.changedFiles} files`}</span>
+					<DiffStats pullRequest={pullRequest} />
 				</TextLine>
 			</box>
 			<box height={1} paddingLeft={1} paddingRight={1}>

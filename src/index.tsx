@@ -5,7 +5,13 @@ import { RegistryProvider } from "@effect/atom-react"
 import { createRoot } from "@opentui/react"
 import { App } from "./App.js"
 
-const renderer = await createCliRenderer({ exitOnCtrlC: false })
+process.env.OTUI_USE_ALTERNATE_SCREEN = "true"
+
+const renderer = await createCliRenderer({
+	exitOnCtrlC: false,
+	screenMode: "alternate-screen",
+	externalOutputMode: "passthrough",
+})
 
 createRoot(renderer).render(
 	<RegistryProvider>
