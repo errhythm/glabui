@@ -266,6 +266,36 @@ export const getDetailJunctionRows = (pullRequest: PullRequestItem | null, paneW
 	return showChecks && checks.length > 0 ? [detailDividerRow, checksDividerRow] : [detailDividerRow]
 }
 
+export const getDetailHeaderHeight = (pullRequest: PullRequestItem | null, paneWidth: number, showChecks = false) => {
+	if (!pullRequest) return DETAIL_PLACEHOLDER_ROWS + 1
+	const titleLines = wrapText(pullRequest.title, Math.max(1, paneWidth - 2)).length
+	const checks = deduplicateChecks(pullRequest.checks)
+	const checksHeight = showChecks && checks.length > 0 ? checksRowCount(checks) + 2 : 0
+	return titleLines + 3 + checksHeight
+}
+
+export const getDetailBodyHeight = (pullRequest: PullRequestItem | null, contentWidth: number, bodyLines = DETAIL_BODY_LINES) => {
+	if (!pullRequest) return bodyLines
+	if (!pullRequest.detailLoaded) return bodyLines
+	return bodyPreview(pullRequest.body, contentWidth, bodyLines).length
+}
+
+export const getDetailsPaneHeight = ({
+	pullRequest,
+	contentWidth,
+	bodyLines = DETAIL_BODY_LINES,
+	paneWidth = contentWidth + 2,
+	showChecks = false,
+}: {
+	pullRequest: PullRequestItem | null
+	contentWidth: number
+	bodyLines?: number
+	paneWidth?: number
+	showChecks?: boolean
+}) => pullRequest
+	? getDetailHeaderHeight(pullRequest, paneWidth, showChecks) + getDetailBodyHeight(pullRequest, contentWidth, bodyLines)
+	: bodyLines + DETAIL_PLACEHOLDER_ROWS + 1
+
 export const DetailHeader = ({
 	pullRequest,
 	contentWidth,
@@ -465,16 +495,7 @@ export const DetailsPane = ({
 	placeholderContent: DetailPlaceholderContent
 	loadingIndicator: string
 }) => {
-	const titleLines = pullRequest ? wrapText(pullRequest.title, Math.max(1, paneWidth - 2)).length : 1
-	const uniqueChecks = pullRequest ? deduplicateChecks(pullRequest.checks) : []
-	const checkRows = checksRowCount(uniqueChecks)
-	const checksHeight = showChecks && uniqueChecks.length > 0 ? 1 + checkRows + 1 : 0
-	const previewLines = useMemo(
-		() => (pullRequest ? bodyPreview(pullRequest.body, contentWidth, bodyLines) : []),
-		[pullRequest?.body, contentWidth, bodyLines],
-	)
-	const bodyHeight = pullRequest && !pullRequest.detailLoaded ? bodyLines : previewLines.length
-	const contentHeight = pullRequest ? titleLines + 2 + 1 + checksHeight + bodyHeight : bodyLines + DETAIL_PLACEHOLDER_ROWS + 1
+	const contentHeight = getDetailsPaneHeight({ pullRequest, contentWidth, bodyLines, paneWidth, showChecks })
 
 	return (
 		<box flexDirection="column" height={contentHeight}>

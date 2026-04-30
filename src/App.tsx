@@ -13,7 +13,7 @@ import { Observability } from "./observability.js"
 import { GitHubService } from "./services/GitHubService.js"
 import { colors } from "./ui/colors.js"
 import { pullRequestDiffKey, splitPatchFiles, type PullRequestDiffState } from "./ui/diff.js"
-import { DetailBody, DetailHeader, DetailPlaceholder, DetailsPane, getDetailJunctionRows, LoadingPane, type DetailPlaceholderContent } from "./ui/DetailsPane.js"
+import { DetailBody, DetailHeader, DetailPlaceholder, DetailsPane, getDetailBodyHeight, getDetailHeaderHeight, getDetailJunctionRows, getDetailsPaneHeight, LoadingPane, type DetailPlaceholderContent } from "./ui/DetailsPane.js"
 import { FooterHints, type RetryProgress } from "./ui/FooterHints.js"
 import { Divider, fitCell, PlainLine, SeparatorColumn } from "./ui/primitives.js"
 import { initialLabelModalState, initialMergeModalState, LabelModal, MergeModal } from "./ui/modals.js"
@@ -39,6 +39,9 @@ interface DetailPlaceholderInput {
 }
 
 const PR_FETCH_RETRIES = 6
+const FOCUS_RETURN_REFRESH_MIN_MS = 60_000
+const FOCUSED_IDLE_REFRESH_MS = 5 * 60_000
+const AUTO_REFRESH_JITTER_MS = 10_000
 const LOADING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const
 
 const retryProgressAtom = Atom.make<RetryProgress | null>(null).pipe(Atom.keepAlive)
@@ -218,6 +221,7 @@ export const App = () => {
 	const [pullRequestOverrides, setPullRequestOverrides] = useAtom(pullRequestOverridesAtom)
 	const retryProgress = useAtomValue(retryProgressAtom)
 	const [loadingFrame, setLoadingFrame] = useState(0)
+	const [terminalFocused, setTerminalFocused] = useState(true)
 	const usernameResult = useAtomValue(usernameAtom)
 	const loadRepoLabels = useAtomSet(listRepoLabelsAtom, { mode: "promise" })
 	const loadPullRequestDetails = useAtomSet(listOpenPullRequestDetailsAtom, { mode: "promise" })
@@ -242,6 +246,12 @@ export const App = () => {
 	const pendingGTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const diffPrefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const detailHydrationRef = useRef<number | null>(null)
+	const lastPullRequestRefreshAtRef = useRef(0)
+	const terminalFocusedRef = useRef(true)
+	const terminalWasBlurredRef = useRef(false)
+	const pullRequestStatusRef = useRef<LoadStatus>("loading")
+	const refreshPullRequestsRef = useRef<(message?: string) => void>(() => {})
+	const maybeRefreshPullRequestsRef = useRef<(minimumAgeMs: number) => void>(() => {})
 	const detailScrollRef = useRef<ScrollBoxRenderable | null>(null)
 	const diffScrollRef = useRef<ScrollBoxRenderable | null>(null)
 	const headerFooterWidth = Math.max(24, contentWidth - 2)
@@ -281,6 +291,7 @@ export const App = () => {
 	const isInitialLoading = pullRequestStatus === "loading" && pullRequests.length === 0
 	const pullRequestError = AsyncResult.isFailure(pullRequestResult) ? errorMessage(Cause.squash(pullRequestResult.cause)) : null
 	const username = AsyncResult.isSuccess(usernameResult) ? usernameResult.value : null
+	pullRequestStatusRef.current = pullRequestStatus
 
 	const effectiveFilterQuery = (filterMode ? filterDraft : filterQuery).trim().toLowerCase()
 	const visibleFilterText = filterMode ? filterDraft : filterQuery
@@ -332,6 +343,53 @@ export const App = () => {
 		refreshPullRequestsAtom()
 		if (message) flashNotice(message)
 	}
+	refreshPullRequestsRef.current = refreshPullRequests
+	maybeRefreshPullRequestsRef.current = (minimumAgeMs) => {
+		if (!terminalFocusedRef.current || pullRequestStatusRef.current === "loading") return
+		const lastRefreshAt = lastPullRequestRefreshAtRef.current
+		if (lastRefreshAt > 0 && Date.now() - lastRefreshAt < minimumAgeMs) return
+		refreshPullRequestsRef.current()
+	}
+
+	useEffect(() => {
+		const fetchedAt = pullRequestLoad?.fetchedAt?.getTime()
+		if (fetchedAt !== undefined) {
+			lastPullRequestRefreshAtRef.current = fetchedAt
+		}
+	}, [pullRequestLoad?.fetchedAt])
+
+	useEffect(() => {
+		const handleFocus = () => {
+			terminalFocusedRef.current = true
+			setTerminalFocused(true)
+			if (terminalWasBlurredRef.current) {
+				maybeRefreshPullRequestsRef.current(FOCUS_RETURN_REFRESH_MIN_MS)
+			}
+		}
+		const handleBlur = () => {
+			terminalWasBlurredRef.current = true
+			terminalFocusedRef.current = false
+			setTerminalFocused(false)
+		}
+
+		renderer.on("focus", handleFocus)
+		renderer.on("blur", handleBlur)
+		return () => {
+			renderer.off("focus", handleFocus)
+			renderer.off("blur", handleBlur)
+		}
+	}, [renderer])
+
+	useEffect(() => {
+		if (!terminalFocused) return
+		const lastRefreshAt = lastPullRequestRefreshAtRef.current || Date.now()
+		const ageMs = Date.now() - lastRefreshAt
+		const delayMs = Math.max(0, FOCUSED_IDLE_REFRESH_MS - ageMs) + Math.floor(Math.random() * AUTO_REFRESH_JITTER_MS)
+		const timeout = globalThis.setTimeout(() => {
+			maybeRefreshPullRequestsRef.current(FOCUSED_IDLE_REFRESH_MS)
+		}, delayMs)
+		return () => globalThis.clearTimeout(timeout)
+	}, [terminalFocused, pullRequestLoad?.fetchedAt])
 
 	useEffect(() => {
 		setSelectedIndex((current) => {
@@ -1013,6 +1071,22 @@ export const App = () => {
 
 	const fullscreenContentWidth = Math.max(24, contentWidth - 2)
 	const fullscreenBodyLines = Math.max(8, (height ?? 24) - 8)
+	const wideFullscreenDetailScrollable = getDetailsPaneHeight({
+		pullRequest: selectedPullRequest,
+		contentWidth: fullscreenContentWidth,
+		bodyLines: fullscreenBodyLines,
+		paneWidth: contentWidth,
+		showChecks: true,
+	}) > wideBodyHeight
+	const narrowFullscreenDetailScrollable = getDetailsPaneHeight({
+		pullRequest: selectedPullRequest,
+		contentWidth: fullscreenContentWidth,
+		bodyLines: fullscreenBodyLines,
+		paneWidth: contentWidth,
+	}) > wideBodyHeight
+	const wideDetailHeaderHeight = getDetailHeaderHeight(selectedPullRequest, rightPaneWidth, true)
+	const wideDetailBodyViewportHeight = Math.max(1, wideBodyHeight - wideDetailHeaderHeight)
+	const wideDetailBodyScrollable = getDetailBodyHeight(selectedPullRequest, rightContentWidth, wideDetailLines) > wideDetailBodyViewportHeight
 
 	const prListProps = {
 		groups: visibleGroups,
@@ -1061,7 +1135,7 @@ export const App = () => {
 				/>
 			) : isWideLayout && detailFullView ? (
 				<box flexGrow={1} flexDirection="column">
-					<scrollbox ref={detailScrollRef} focused flexGrow={1}>
+					<scrollbox ref={detailScrollRef} focused flexGrow={1} verticalScrollbarOptions={{ visible: wideFullscreenDetailScrollable }}>
 						<DetailsPane
 							pullRequest={selectedPullRequest}
 							contentWidth={fullscreenContentWidth}
@@ -1085,7 +1159,7 @@ export const App = () => {
 						{selectedPullRequest ? (
 							<>
 								<DetailHeader pullRequest={selectedPullRequest} contentWidth={rightContentWidth} paneWidth={rightPaneWidth} showChecks />
-								<scrollbox flexGrow={1}>
+								<scrollbox flexGrow={1} verticalScrollbarOptions={{ visible: wideDetailBodyScrollable }}>
 									<DetailBody pullRequest={selectedPullRequest} contentWidth={rightContentWidth} bodyLines={wideDetailLines} loadingIndicator={loadingIndicator} />
 								</scrollbox>
 							</>
@@ -1096,7 +1170,7 @@ export const App = () => {
 				</box>
 			) : detailFullView ? (
 				<box flexGrow={1} flexDirection="column">
-					<scrollbox ref={detailScrollRef} focused flexGrow={1}>
+					<scrollbox ref={detailScrollRef} focused flexGrow={1} verticalScrollbarOptions={{ visible: narrowFullscreenDetailScrollable }}>
 						<DetailsPane
 							pullRequest={selectedPullRequest}
 							contentWidth={fullscreenContentWidth}
