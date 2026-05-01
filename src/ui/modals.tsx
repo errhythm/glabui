@@ -96,19 +96,19 @@ export const initialThemeModalState: ThemeModalState = {
 
 export type Modal = Data.TaggedEnum<{
 	None: {}
-	Label: { readonly state: LabelModalState }
-	Close: { readonly state: CloseModalState }
-	Merge: { readonly state: MergeModalState }
-	Comment: { readonly state: CommentModalState }
-	CommentThread: { readonly state: CommentThreadModalState }
-	Theme: { readonly state: ThemeModalState }
+	Label: LabelModalState
+	Close: CloseModalState
+	Merge: MergeModalState
+	Comment: CommentModalState
+	CommentThread: CommentThreadModalState
+	Theme: ThemeModalState
 }>
 
 export const Modal = Data.taggedEnum<Modal>()
 export const initialModal: Modal = Modal.None()
 
 export type ModalTag = Modal["_tag"]
-export type ModalState<Tag extends Exclude<ModalTag, "None">> = Extract<Modal, { _tag: Tag }>["state"]
+export type ModalState<Tag extends Exclude<ModalTag, "None">> = Omit<Extract<Modal, { _tag: Tag }>, "_tag">
 
 export const modalInitialStates = {
 	Label: initialLabelModalState,

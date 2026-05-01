@@ -410,22 +410,21 @@ export const App = () => {
 	const commentModalActive = Modal.$is("Comment")(activeModal)
 	const commentThreadModalActive = Modal.$is("CommentThread")(activeModal)
 	const themeModalActive = Modal.$is("Theme")(activeModal)
-	const labelModal: LabelModalState = labelModalActive ? activeModal.state : initialLabelModalState
-	const closeModal: CloseModalState = closeModalActive ? activeModal.state : initialCloseModalState
-	const mergeModal: MergeModalState = mergeModalActive ? activeModal.state : initialMergeModalState
-	const commentModal: CommentModalState = commentModalActive ? activeModal.state : initialCommentModalState
-	const commentThreadModal: CommentThreadModalState = commentThreadModalActive ? activeModal.state : initialCommentThreadModalState
-	const themeModal: ThemeModalState = themeModalActive ? activeModal.state : initialThemeModalState
+	const labelModal: LabelModalState = labelModalActive ? activeModal : initialLabelModalState
+	const closeModal: CloseModalState = closeModalActive ? activeModal : initialCloseModalState
+	const mergeModal: MergeModalState = mergeModalActive ? activeModal : initialMergeModalState
+	const commentModal: CommentModalState = commentModalActive ? activeModal : initialCommentModalState
+	const commentThreadModal: CommentThreadModalState = commentThreadModalActive ? activeModal : initialCommentThreadModalState
+	const themeModal: ThemeModalState = themeModalActive ? activeModal : initialThemeModalState
 	const makeModalSetter = <Tag extends Exclude<ModalTag, "None">>(tag: Tag) =>
 		(next: ModalState<Tag> | ((prev: ModalState<Tag>) => ModalState<Tag>)) => setActiveModal((current) => {
-			const ctor = Modal[tag] as (args: { state: ModalState<Tag> }) => Modal
+			const ctor = Modal[tag] as unknown as (args: ModalState<Tag>) => Modal
 			if (typeof next === "function") {
 				const updater = next as (prev: ModalState<Tag>) => ModalState<Tag>
 				if (current._tag !== tag) return current
-				const prev = (current as unknown as { readonly state: ModalState<Tag> }).state
-				return ctor({ state: updater(prev) })
+				return ctor(updater(current as unknown as ModalState<Tag>))
 			}
-			return ctor({ state: next })
+			return ctor(next)
 		})
 	const setLabelModal = makeModalSetter("Label")
 	const setCloseModal = makeModalSetter("Close")
@@ -962,6 +961,37 @@ export const App = () => {
 		if (y <= 0) setDiffFileIndex(0)
 		else if (y === Number.MAX_SAFE_INTEGER) setDiffFileIndex(Math.max(0, readyDiffFiles.length - 1))
 		else syncDiffFileIndexToScroll()
+	}
+
+	const clearPendingGTimeout = () => {
+		if (pendingGTimeoutRef.current !== null) {
+			clearTimeout(pendingGTimeoutRef.current)
+			pendingGTimeoutRef.current = null
+		}
+	}
+
+	const handleVimGoto = (key: { readonly name: string; readonly shift?: boolean }, gotoStart: () => void, gotoEnd: () => void): boolean => {
+		if (isShiftG(key)) {
+			gotoEnd()
+			setPendingG(false)
+			clearPendingGTimeout()
+			return true
+		}
+		if (key.name === "g") {
+			if (pendingG) {
+				gotoStart()
+				setPendingG(false)
+				clearPendingGTimeout()
+			} else {
+				setPendingG(true)
+				pendingGTimeoutRef.current = setTimeout(() => {
+					setPendingG(false)
+					pendingGTimeoutRef.current = null
+				}, 500)
+			}
+			return true
+		}
+		return false
 	}
 
 	const ensureDiffLineVisible = (line: number) => {
@@ -1711,32 +1741,7 @@ export const App = () => {
 				scrollDiffBy(halfPage)
 				return
 			}
-			if (isShiftG(key)) {
-				scrollDiffTo(Number.MAX_SAFE_INTEGER)
-				setPendingG(false)
-				if (pendingGTimeoutRef.current !== null) {
-					clearTimeout(pendingGTimeoutRef.current)
-					pendingGTimeoutRef.current = null
-				}
-				return
-			}
-			if (key.name === "g") {
-				if (pendingG) {
-					scrollDiffTo(0)
-					setPendingG(false)
-					if (pendingGTimeoutRef.current !== null) {
-						clearTimeout(pendingGTimeoutRef.current)
-						pendingGTimeoutRef.current = null
-					}
-				} else {
-					setPendingG(true)
-					pendingGTimeoutRef.current = setTimeout(() => {
-						setPendingG(false)
-						pendingGTimeoutRef.current = null
-					}, 500)
-				}
-				return
-			}
+			if (handleVimGoto(key, () => scrollDiffTo(0), () => scrollDiffTo(Number.MAX_SAFE_INTEGER))) return
 			if (key.name === "up" || key.name === "k") {
 				scrollDiffBy(-1)
 				return
@@ -1822,14 +1827,9 @@ export const App = () => {
 				setDetailScrollOffset(0)
 				return
 			}
-			if (key.name === "end" || isShiftG(key)) {
+			if (key.name === "end") {
 				detailScrollRef.current?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER })
 				setDetailScrollOffset(Number.MAX_SAFE_INTEGER)
-				setPendingG(false)
-				if (pendingGTimeoutRef.current !== null) {
-					clearTimeout(pendingGTimeoutRef.current)
-					pendingGTimeoutRef.current = null
-				}
 				return
 			}
 			if (key.name === "pageup") {
@@ -1842,24 +1842,10 @@ export const App = () => {
 				setDetailScrollOffset((current) => current + halfPage)
 				return
 			}
-			if (key.name === "g") {
-				if (pendingG) {
-					detailScrollRef.current?.scrollTo({ x: 0, y: 0 })
-					setDetailScrollOffset(0)
-					setPendingG(false)
-					if (pendingGTimeoutRef.current !== null) {
-						clearTimeout(pendingGTimeoutRef.current)
-						pendingGTimeoutRef.current = null
-					}
-				} else {
-					setPendingG(true)
-					pendingGTimeoutRef.current = setTimeout(() => {
-						setPendingG(false)
-						pendingGTimeoutRef.current = null
-					}, 500)
-				}
-				return
-			}
+			if (handleVimGoto(key,
+				() => { detailScrollRef.current?.scrollTo({ x: 0, y: 0 }); setDetailScrollOffset(0) },
+				() => { detailScrollRef.current?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }); setDetailScrollOffset(Number.MAX_SAFE_INTEGER) },
+			)) return
 			if (key.name === "up" || key.name === "k") {
 				detailScrollRef.current?.scrollBy({ x: 0, y: -1 })
 				setDetailScrollOffset((current) => Math.max(0, current - 1))
@@ -2001,31 +1987,10 @@ export const App = () => {
 			})
 			return
 		}
-		// Vim-style navigation: gg to go to top, G to go to bottom
-		if (isShiftG(key)) {
-			setSelectedIndex((_current) => {
-				if (visiblePullRequests.length === 0) return 0
-				return visiblePullRequests.length - 1
-			})
-			return
-		}
-		if (key.name === "g") {
-			if (pendingG) {
-				setSelectedIndex(0)
-				setPendingG(false)
-				if (pendingGTimeoutRef.current !== null) {
-					clearTimeout(pendingGTimeoutRef.current)
-					pendingGTimeoutRef.current = null
-				}
-			} else {
-				setPendingG(true)
-				pendingGTimeoutRef.current = setTimeout(() => {
-					setPendingG(false)
-					pendingGTimeoutRef.current = null
-				}, 500)
-			}
-			return
-		}
+		if (handleVimGoto(key,
+			() => setSelectedIndex(0),
+			() => setSelectedIndex(visiblePullRequests.length === 0 ? 0 : visiblePullRequests.length - 1),
+		)) return
 		if ((key.name === "return" || key.name === "enter") && !detailFullView) {
 			setDetailFullView(true)
 			setDetailScrollOffset(0)

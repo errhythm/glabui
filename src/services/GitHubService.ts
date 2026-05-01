@@ -5,23 +5,22 @@ import { getMergeActionDefinition } from "../mergeActions.js"
 import { CommandRunner, type CommandError, type JsonParseError } from "./CommandRunner.js"
 
 const NullableString = Schema.NullOr(Schema.String)
-const OptionalNullableString = Schema.optional(NullableString)
-const OptionalNullableNumber = Schema.optional(Schema.NullOr(Schema.Number))
+const OptionalNullableString = Schema.optionalKey(NullableString)
+const OptionalNullableNumber = Schema.optionalKey(Schema.NullOr(Schema.Number))
 
-const RawCheckRunSchema = Schema.Struct({
-	__typename: Schema.Literal("CheckRun"),
-	name: OptionalNullableString,
-	status: OptionalNullableString,
-	conclusion: OptionalNullableString,
-})
-
-const RawStatusContextSchema = Schema.Struct({
-	__typename: Schema.Literal("StatusContext"),
-	context: OptionalNullableString,
-	state: OptionalNullableString,
-})
-
-const RawCheckContextSchema = Schema.Union([RawCheckRunSchema, RawStatusContextSchema])
+const RawCheckContextSchema = Schema.Union([
+	Schema.Struct({
+		__typename: Schema.tag("CheckRun"),
+		name: OptionalNullableString,
+		status: OptionalNullableString,
+		conclusion: OptionalNullableString,
+	}),
+	Schema.Struct({
+		__typename: Schema.tag("StatusContext"),
+		context: OptionalNullableString,
+		state: OptionalNullableString,
+	}),
+]).pipe(Schema.toTaggedUnion("__typename"))
 
 const RawAuthorSchema = Schema.Struct({ login: Schema.String })
 const RawRepositorySchema = Schema.Struct({ nameWithOwner: Schema.String })
@@ -55,7 +54,7 @@ const RawPullRequestNodeSchema = Schema.Struct({
 	additions: Schema.Number,
 	deletions: Schema.Number,
 	changedFiles: Schema.Number,
-	statusCheckRollup: Schema.optional(Schema.NullOr(Schema.Struct({
+	statusCheckRollup: Schema.optionalKey(Schema.NullOr(Schema.Struct({
 		contexts: Schema.Struct({ nodes: Schema.Array(RawCheckContextSchema) }),
 	}))),
 })
@@ -88,22 +87,22 @@ const MergeInfoResponseSchema = Schema.Struct({
 	statusCheckRollup: Schema.Array(RawCheckContextSchema),
 })
 
-const DiffCommentSideSchema = Schema.Union([Schema.Literal("LEFT"), Schema.Literal("RIGHT")])
+const DiffCommentSideSchema = Schema.Literals(["LEFT", "RIGHT"])
 
 const PullRequestCommentSchema = Schema.Struct({
-	id: Schema.optional(Schema.NullOr(Schema.Union([Schema.Number, Schema.String]))),
+	id: Schema.optionalKey(Schema.NullOr(Schema.Union([Schema.Number, Schema.String]))),
 	node_id: OptionalNullableString,
 	body: OptionalNullableString,
 	html_url: OptionalNullableString,
 	url: OptionalNullableString,
 	created_at: OptionalNullableString,
-	user: Schema.optional(Schema.NullOr(Schema.Struct({
+	user: Schema.optionalKey(Schema.NullOr(Schema.Struct({
 		login: OptionalNullableString,
 	}))),
 	path: OptionalNullableString,
 	line: OptionalNullableNumber,
 	original_line: OptionalNullableNumber,
-	side: Schema.optional(Schema.NullOr(DiffCommentSideSchema)),
+	side: Schema.optionalKey(Schema.NullOr(DiffCommentSideSchema)),
 })
 
 const CommentsResponseSchema = Schema.Union([
@@ -239,18 +238,23 @@ const normalizeCheckStatus = (raw: string | null | undefined): CheckItem["status
 const normalizeCheckConclusion = (raw: string | null | undefined): CheckItem["conclusion"] =>
 	raw ? CHECK_CONCLUSION_BY_RAW[raw] ?? null : null
 
-const getContextStatus = (context: RawCheckContext): CheckItem["status"] => {
-	if (context.__typename === "CheckRun") return normalizeCheckStatus(context.status)
-	if (context.state === "PENDING") return "in_progress"
-	return "completed"
+const getContextStatus = (context: RawCheckContext): CheckItem["status"] =>
+	RawCheckContextSchema.match(context, {
+		CheckRun: (run) => normalizeCheckStatus(run.status),
+		StatusContext: (status) => status.state === "PENDING" ? "in_progress" : "completed",
+	})
+
+const STATUS_CONTEXT_CONCLUSION: Record<string, NonNullable<CheckItem["conclusion"]>> = {
+	SUCCESS: "success",
+	FAILURE: "failure",
+	ERROR: "failure",
 }
 
-const getContextConclusion = (context: RawCheckContext): CheckItem["conclusion"] => {
-	if (context.__typename === "CheckRun") return normalizeCheckConclusion(context.conclusion)
-	if (context.state === "SUCCESS") return "success"
-	if (context.state === "FAILURE" || context.state === "ERROR") return "failure"
-	return null
-}
+const getContextConclusion = (context: RawCheckContext): CheckItem["conclusion"] =>
+	RawCheckContextSchema.match(context, {
+		CheckRun: (run) => normalizeCheckConclusion(run.conclusion),
+		StatusContext: (status) => (status.state ? STATUS_CONTEXT_CONCLUSION[status.state] : null) ?? null,
+	})
 
 const getCheckInfoFromContexts = (contexts: readonly RawCheckContext[]): Pick<PullRequestItem, "checkStatus" | "checkSummary" | "checks"> => {
 	if (contexts.length === 0) {
