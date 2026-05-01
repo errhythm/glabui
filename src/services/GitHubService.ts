@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { config } from "../config.js"
-import { pullRequestQueueSearchQualifier, type CheckItem, type CreatePullRequestCommentInput, type PullRequestItem, type PullRequestMergeAction, type PullRequestMergeInfo, type PullRequestQueueMode, type PullRequestReviewComment } from "../domain.js"
+import { DiffCommentSide, pullRequestQueueSearchQualifier, type CheckItem, type CreatePullRequestCommentInput, type Mergeable, type PullRequestItem, type PullRequestMergeAction, type PullRequestMergeInfo, type PullRequestQueueMode, type PullRequestReviewComment, type ReviewStatus } from "../domain.js"
 import { getMergeActionDefinition } from "../mergeActions.js"
 import { CommandRunner, type CommandError, type JsonParseError } from "./CommandRunner.js"
 
@@ -87,8 +87,6 @@ const MergeInfoResponseSchema = Schema.Struct({
 	statusCheckRollup: Schema.Array(RawCheckContextSchema),
 })
 
-const DiffCommentSideSchema = Schema.Literals(["LEFT", "RIGHT"])
-
 const PullRequestCommentSchema = Schema.Struct({
 	id: Schema.optionalKey(Schema.NullOr(Schema.Union([Schema.Number, Schema.String]))),
 	node_id: OptionalNullableString,
@@ -102,7 +100,7 @@ const PullRequestCommentSchema = Schema.Struct({
 	path: OptionalNullableString,
 	line: OptionalNullableNumber,
 	original_line: OptionalNullableNumber,
-	side: Schema.optionalKey(Schema.NullOr(DiffCommentSideSchema)),
+	side: Schema.optionalKey(Schema.NullOr(DiffCommentSide)),
 })
 
 const CommentsResponseSchema = Schema.Union([
@@ -204,13 +202,13 @@ const normalizeDate = (value: string | null | undefined) => {
 const getPullRequestState = (item: { readonly state: string; readonly merged: boolean }): PullRequestItem["state"] =>
 	item.merged ? "merged" : item.state.toLowerCase() === "open" ? "open" : "closed"
 
-const REVIEW_STATUS_BY_DECISION: Record<string, PullRequestItem["reviewStatus"]> = {
+const REVIEW_STATUS_BY_DECISION: Record<string, ReviewStatus> = {
 	APPROVED: "approved",
 	CHANGES_REQUESTED: "changes",
 	REVIEW_REQUIRED: "review",
 }
 
-const getReviewStatus = (item: { readonly isDraft: boolean; readonly reviewDecision: string | null }): PullRequestItem["reviewStatus"] => {
+const getReviewStatus = (item: { readonly isDraft: boolean; readonly reviewDecision: string | null }): ReviewStatus => {
 	if (item.isDraft) return "draft"
 	if (item.reviewDecision) return REVIEW_STATUS_BY_DECISION[item.reviewDecision] ?? "none"
 	return "none"
@@ -383,12 +381,12 @@ const fallbackCreatedComment = (input: CreatePullRequestCommentInput): PullReque
 
 export type GitHubError = CommandError | JsonParseError | Schema.SchemaError
 
-const MERGEABLE_BY_RAW: Record<string, PullRequestMergeInfo["mergeable"]> = {
+const MERGEABLE_BY_RAW: Record<string, Mergeable> = {
 	MERGEABLE: "mergeable",
 	CONFLICTING: "conflicting",
 }
 
-const normalizeMergeable = (value: string): PullRequestMergeInfo["mergeable"] =>
+const normalizeMergeable = (value: string): Mergeable =>
 	MERGEABLE_BY_RAW[value] ?? "unknown"
 
 export class GitHubService extends Context.Service<GitHubService, {

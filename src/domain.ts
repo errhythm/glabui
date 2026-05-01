@@ -1,8 +1,11 @@
-export type PullRequestState = "open" | "closed" | "merged"
+import { Schema } from "effect"
 
-export const pullRequestQueueModes = ["authored", "review", "assigned", "mentioned"] as const
+export const PullRequestState = Schema.Literals(["open", "closed", "merged"])
+export type PullRequestState = Schema.Schema.Type<typeof PullRequestState>
 
-export type PullRequestQueueMode = typeof pullRequestQueueModes[number]
+export const PullRequestQueueMode = Schema.Literals(["authored", "review", "assigned", "mentioned"])
+export type PullRequestQueueMode = Schema.Schema.Type<typeof PullRequestQueueMode>
+export const pullRequestQueueModes = PullRequestQueueMode.literals
 
 export const pullRequestQueueLabels = {
 	authored: "authored",
@@ -21,11 +24,30 @@ export const pullRequestQueueSearchQualifier = (mode: PullRequestQueueMode, auth
 	return qualifiers[mode]
 }
 
-export type CheckConclusion = "success" | "failure" | "neutral" | "skipped" | "cancelled" | "timed_out"
+export const CheckConclusion = Schema.Literals(["success", "failure", "neutral", "skipped", "cancelled", "timed_out"])
+export type CheckConclusion = Schema.Schema.Type<typeof CheckConclusion>
+
+export const CheckRunStatus = Schema.Literals(["completed", "in_progress", "queued", "pending"])
+export type CheckRunStatus = Schema.Schema.Type<typeof CheckRunStatus>
+
+export const CheckRollupStatus = Schema.Literals(["passing", "pending", "failing", "none"])
+export type CheckRollupStatus = Schema.Schema.Type<typeof CheckRollupStatus>
+
+export const ReviewStatus = Schema.Literals(["draft", "approved", "changes", "review", "none"])
+export type ReviewStatus = Schema.Schema.Type<typeof ReviewStatus>
+
+export const Mergeable = Schema.Literals(["mergeable", "conflicting", "unknown"])
+export type Mergeable = Schema.Schema.Type<typeof Mergeable>
+
+export const DiffCommentSide = Schema.Literals(["LEFT", "RIGHT"])
+export type DiffCommentSide = Schema.Schema.Type<typeof DiffCommentSide>
+
+export const PullRequestMergeAction = Schema.Literals(["squash", "auto", "admin", "disable-auto"])
+export type PullRequestMergeAction = Schema.Schema.Type<typeof PullRequestMergeAction>
 
 export interface CheckItem {
 	readonly name: string
-	readonly status: "completed" | "in_progress" | "queued" | "pending"
+	readonly status: CheckRunStatus
 	readonly conclusion: CheckConclusion | null
 }
 
@@ -33,8 +55,6 @@ export interface PullRequestLabel {
 	readonly name: string
 	readonly color: string | null
 }
-
-export type DiffCommentSide = "LEFT" | "RIGHT"
 
 export interface CreatePullRequestCommentInput {
 	readonly repository: string
@@ -69,8 +89,8 @@ export interface PullRequestItem {
 	readonly deletions: number
 	readonly changedFiles: number
 	readonly state: PullRequestState
-	readonly reviewStatus: "draft" | "approved" | "changes" | "review" | "none"
-	readonly checkStatus: "passing" | "pending" | "failing" | "none"
+	readonly reviewStatus: ReviewStatus
+	readonly checkStatus: CheckRollupStatus
 	readonly checkSummary: string | null
 	readonly checks: readonly CheckItem[]
 	readonly autoMergeEnabled: boolean
@@ -86,11 +106,9 @@ export interface PullRequestMergeInfo {
 	readonly title: string
 	readonly state: PullRequestState
 	readonly isDraft: boolean
-	readonly mergeable: "mergeable" | "conflicting" | "unknown"
-	readonly reviewStatus: PullRequestItem["reviewStatus"]
-	readonly checkStatus: PullRequestItem["checkStatus"]
+	readonly mergeable: Mergeable
+	readonly reviewStatus: ReviewStatus
+	readonly checkStatus: CheckRollupStatus
 	readonly checkSummary: string | null
 	readonly autoMergeEnabled: boolean
 }
-
-export type PullRequestMergeAction = "squash" | "auto" | "admin" | "disable-auto"
