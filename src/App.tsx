@@ -11,6 +11,7 @@ import { formatShortDate, formatTimestamp } from "./date.js"
 import { availableMergeActions, mergeInfoFromPullRequest } from "./mergeActions.js"
 import { Observability } from "./observability.js"
 import { GitHubService } from "./services/GitHubService.js"
+import { loadStoredThemeId, saveStoredThemeId } from "./themeStore.js"
 import { colors, filterThemeDefinitions, setActiveTheme, themeDefinitions, type ThemeId } from "./ui/colors.js"
 import { pullRequestDiffKey, splitPatchFiles, type PullRequestDiffState } from "./ui/diff.js"
 import { DetailBody, DetailHeader, DetailPlaceholder, DetailsPane, getDetailBodyHeight, getDetailHeaderHeight, getDetailJunctionRows, getDetailsPaneHeight, LoadingPane, type DetailPlaceholderContent } from "./ui/DetailsPane.js"
@@ -22,6 +23,7 @@ import { PullRequestDiffPane } from "./ui/PullRequestDiffPane.js"
 import { PullRequestList } from "./ui/PullRequestList.js"
 
 const githubRuntime = Atom.runtime(GitHubService.layer.pipe(Layer.provideMerge(Observability.layer)))
+const initialThemeId = await Effect.runPromise(loadStoredThemeId)
 
 type LoadStatus = "loading" | "ready" | "error"
 
@@ -81,7 +83,7 @@ const pullRequestDiffCacheAtom = Atom.make<Record<string, PullRequestDiffState>>
 
 const labelModalAtom = Atom.make(initialLabelModalState).pipe(Atom.keepAlive)
 const mergeModalAtom = Atom.make(initialMergeModalState).pipe(Atom.keepAlive)
-const themeIdAtom = Atom.make<ThemeId>("ghui").pipe(Atom.keepAlive)
+const themeIdAtom = Atom.make<ThemeId>(initialThemeId).pipe(Atom.keepAlive)
 const themeModalAtom = Atom.make(initialThemeModalState).pipe(Atom.keepAlive)
 const labelCacheAtom = Atom.make<Record<string, readonly PullRequestLabel[]>>({}).pipe(Atom.keepAlive)
 const pullRequestOverridesAtom = Atom.make<Record<string, PullRequestItem>>({}).pipe(Atom.keepAlive)
@@ -574,6 +576,7 @@ export const App = () => {
 		if (!confirm) {
 			setThemeId(themeModal.initialThemeId)
 		} else if (selectedTheme) {
+			void Effect.runPromise(saveStoredThemeId(selectedTheme.id)).catch((error) => flashNotice(errorMessage(error)))
 			flashNotice(`Theme: ${selectedTheme.name}`)
 		}
 		setThemeModal(initialThemeModalState)

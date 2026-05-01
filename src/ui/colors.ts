@@ -588,6 +588,8 @@ export const colors: ColorPalette = { ...ghuiColors }
 
 export const getThemeDefinition = (id: ThemeId) => themeDefinitions.find((theme) => theme.id === id) ?? themeDefinitions[0]!
 
+export const isThemeId = (value: unknown): value is ThemeId => typeof value === "string" && themeDefinitions.some((theme) => theme.id === value)
+
 export const filterThemeDefinitions = (query: string) => {
 	const normalized = query.trim().toLowerCase()
 	if (normalized.length === 0) return themeDefinitions

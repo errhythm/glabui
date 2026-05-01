@@ -281,7 +281,7 @@ export const ThemeModal = ({
 	const contentWidth = Math.max(14, innerWidth - 2)
 	const rowWidth = innerWidth
 	const filteredThemes = filterThemeDefinitions(state.query)
-	const maxVisible = Math.max(1, modalHeight - 8)
+	const maxVisible = Math.max(1, modalHeight - 7)
 	const activeIndex = filteredThemes.findIndex((theme) => theme.id === activeThemeId)
 	const selectedIndex = Math.max(0, activeIndex)
 	const selectedTheme = filteredThemes[selectedIndex] ?? themeDefinitions.find((theme) => theme.id === activeThemeId) ?? themeDefinitions[0]!
@@ -293,14 +293,14 @@ export const ThemeModal = ({
 	const countText = `${filteredThemes.length === 0 ? 0 : selectedIndex + 1}/${filteredThemes.length}`
 	const title = "Themes"
 	const headerGap = Math.max(1, contentWidth - title.length - countText.length)
-	const queryText = state.query.length > 0 ? state.query : "type to filter themes"
+	const subtitleText = state.filterMode ? (state.query.length > 0 ? state.query : "type to filter themes") : selectedTheme.description
 	const queryPrefix = "/ "
-	const queryWidth = Math.max(1, contentWidth - queryPrefix.length)
+	const subtitleWidth = Math.max(1, contentWidth - (state.filterMode ? queryPrefix.length : 0))
 	const messageTopRows = Math.max(0, Math.floor((maxVisible - 1) / 2))
 	const messageBottomRows = Math.max(0, maxVisible - messageTopRows - 1)
 
 	return (
-		<ModalFrame left={offsetLeft} top={offsetTop} width={modalWidth} height={modalHeight} junctionRows={[3, modalHeight - 4]}>
+		<ModalFrame left={offsetLeft} top={offsetTop} width={modalWidth} height={modalHeight} junctionRows={[2, modalHeight - 4]}>
 			<box height={1} paddingLeft={1} paddingRight={1}>
 				<TextLine>
 					<span fg={colors.accent} attributes={TextAttributes.BOLD}>{title}</span>
@@ -309,13 +309,14 @@ export const ThemeModal = ({
 				</TextLine>
 			</box>
 			<box height={1} paddingLeft={1} paddingRight={1}>
-				<PlainLine text={fitCell(selectedTheme.description, contentWidth)} fg={colors.muted} />
-			</box>
-			<box height={1} paddingLeft={1} paddingRight={1}>
-				<TextLine>
-					<span fg={colors.count}>{queryPrefix}</span>
-					<span fg={state.query.length > 0 ? colors.text : colors.muted}>{fitCell(queryText, queryWidth)}</span>
-				</TextLine>
+				{state.filterMode ? (
+					<TextLine>
+						<span fg={colors.count}>{queryPrefix}</span>
+						<span fg={state.query.length > 0 ? colors.text : colors.muted}>{fitCell(subtitleText, subtitleWidth)}</span>
+					</TextLine>
+				) : (
+					<PlainLine text={fitCell(subtitleText, subtitleWidth)} fg={colors.muted} />
+				)}
 			</box>
 			<Divider width={innerWidth} />
 			<box height={maxVisible} flexDirection="column">
