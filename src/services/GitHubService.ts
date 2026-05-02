@@ -175,11 +175,33 @@ type PullRequestConnection<Item> = {
 	}
 }
 
-const pullRequestSearchQuery = `
-query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
-  search(query: $searchQuery, type: ISSUE, first: $first, after: $after) {
-    nodes {
-      ... on PullRequest {
+const STATUS_CHECK_FRAGMENT = `
+        statusCheckRollup {
+          contexts(first: 100) {
+            nodes {
+              __typename
+              ... on CheckRun { name status conclusion }
+              ... on StatusContext { context state }
+            }
+          }
+        }`
+
+const SUMMARY_FIELDS_FRAGMENT = `
+        number
+        title
+        isDraft
+        reviewDecision
+        autoMergeRequest { enabledAt }
+        state
+        merged
+        createdAt
+        closedAt
+        url
+        author { login }
+        headRefOid
+        repository { nameWithOwner }${STATUS_CHECK_FRAGMENT}`
+
+const DETAIL_FIELDS_FRAGMENT = `
         number
         title
         body
@@ -197,16 +219,13 @@ query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
         author { login }
         headRefOid
         repository { nameWithOwner }
-        labels(first: 20) { nodes { name color } }
-        statusCheckRollup {
-          contexts(first: 100) {
-            nodes {
-              __typename
-              ... on CheckRun { name status conclusion }
-              ... on StatusContext { context state }
-            }
-          }
-        }
+        labels(first: 20) { nodes { name color } }${STATUS_CHECK_FRAGMENT}`
+
+const pullRequestSearchQuery = `
+query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
+  search(query: $searchQuery, type: ISSUE, first: $first, after: $after) {
+    nodes {
+      ... on PullRequest {${DETAIL_FIELDS_FRAGMENT}
       }
     }
     pageInfo { hasNextPage endCursor }
@@ -217,34 +236,7 @@ query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
 const pullRequestDetailQuery = `
 query PullRequest($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      number
-      title
-      body
-      isDraft
-      reviewDecision
-      autoMergeRequest { enabledAt }
-      additions
-      deletions
-      changedFiles
-      state
-      merged
-      createdAt
-      closedAt
-      url
-      author { login }
-      headRefOid
-      repository { nameWithOwner }
-      labels(first: 20) { nodes { name color } }
-      statusCheckRollup {
-        contexts(first: 100) {
-          nodes {
-            __typename
-            ... on CheckRun { name status conclusion }
-            ... on StatusContext { context state }
-          }
-        }
-      }
+    pullRequest(number: $number) {${DETAIL_FIELDS_FRAGMENT}
     }
   }
 }
@@ -254,29 +246,7 @@ const pullRequestSummarySearchQuery = `
 query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
   search(query: $searchQuery, type: ISSUE, first: $first, after: $after) {
     nodes {
-      ... on PullRequest {
-        number
-        title
-        isDraft
-        reviewDecision
-        autoMergeRequest { enabledAt }
-        state
-        merged
-        createdAt
-        closedAt
-        url
-        author { login }
-        headRefOid
-        repository { nameWithOwner }
-        statusCheckRollup {
-          contexts(first: 100) {
-            nodes {
-              __typename
-              ... on CheckRun { name status conclusion }
-              ... on StatusContext { context state }
-            }
-          }
-        }
+      ... on PullRequest {${SUMMARY_FIELDS_FRAGMENT}
       }
     }
     pageInfo { hasNextPage endCursor }
@@ -288,29 +258,7 @@ const repositoryPullRequestsQuery = `
 query RepositoryPullRequests($owner: String!, $name: String!, $first: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, first: $first, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
-      nodes {
-        number
-        title
-        isDraft
-        reviewDecision
-        autoMergeRequest { enabledAt }
-        state
-        merged
-        createdAt
-        closedAt
-        url
-        author { login }
-        headRefOid
-        repository { nameWithOwner }
-        statusCheckRollup {
-          contexts(first: 100) {
-            nodes {
-              __typename
-              ... on CheckRun { name status conclusion }
-              ... on StatusContext { context state }
-            }
-          }
-        }
+      nodes {${SUMMARY_FIELDS_FRAGMENT}
       }
       pageInfo { hasNextPage endCursor }
     }
