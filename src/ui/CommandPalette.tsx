@@ -4,7 +4,7 @@ import type { AppCommand } from "../commands.js"
 import { clampCommandIndex } from "../commands.js"
 import { colors } from "./colors.js"
 import { scrollTopForVisibleLine } from "./diff.js"
-import { centerCell, Divider, Filler, fitCell, ModalFrame, PlainLine, TextLine, trimCell } from "./primitives.js"
+import { centerCell, Filler, fitCell, PlainLine, StandardModal, standardModalDims, TextLine, trimCell } from "./primitives.js"
 
 const scopeLabels = {
 	Global: "App",
@@ -70,19 +70,14 @@ export const CommandPalette = ({
 	offsetLeft: number
 	offsetTop: number
 }) => {
-	const innerWidth = Math.max(16, modalWidth - 2)
-	const contentWidth = Math.max(14, innerWidth - 2)
-	const rowWidth = innerWidth
-	const listHeight = Math.max(1, modalHeight - 7)
+	const { contentWidth, bodyHeight: listHeight, rowWidth } = standardModalDims(modalWidth, modalHeight)
 	const clampedIndex = clampCommandIndex(selectedIndex, commands)
 	const [scrollTop, setScrollTop] = useState(0)
 	const rows = useMemo(() => buildCommandPaletteRows(commands), [commands])
 	const selectedRowIndex = commandPaletteSelectedRowIndex(rows, clampedIndex)
 	const visibleRows = rows.slice(scrollTop, scrollTop + listHeight)
 	const bottomPaddingRows = Math.max(0, listHeight - visibleRows.length)
-	const title = "Command Palette"
 	const countText = commands.length === 1 ? "1 command" : `${commands.length} commands`
-	const headerGap = Math.max(1, contentWidth - title.length - countText.length)
 	const queryText = query.length > 0 ? query : "type a command, state, or shortcut"
 	const queryWidth = Math.max(1, contentWidth - 2)
 	const emptyTopRows = Math.max(0, Math.floor((listHeight - 1) / 2))
@@ -92,63 +87,57 @@ export const CommandPalette = ({
 	}, [listHeight, rows.length, selectedRowIndex])
 
 	return (
-		<ModalFrame left={offsetLeft} top={offsetTop} width={modalWidth} height={modalHeight} junctionRows={[2, modalHeight - 4]}>
-			<box height={1} paddingLeft={1} paddingRight={1}>
-				<TextLine>
-					<span fg={colors.accent} attributes={TextAttributes.BOLD}>{title}</span>
-					<span fg={colors.muted}>{" ".repeat(headerGap)}</span>
-					<span fg={colors.muted}>{countText}</span>
-				</TextLine>
-			</box>
-			<box height={1} paddingLeft={1} paddingRight={1}>
+		<StandardModal
+			left={offsetLeft}
+			top={offsetTop}
+			width={modalWidth}
+			height={modalHeight}
+			title="Command Palette"
+			headerRight={{ text: countText }}
+			subtitle={
 				<TextLine>
 					<span fg={colors.count}>› </span>
 					<span fg={query.length > 0 ? colors.text : colors.muted}>{fitCell(queryText, queryWidth)}</span>
 				</TextLine>
-			</box>
-			<Divider width={innerWidth} />
-			<box height={listHeight} flexDirection="column">
-				{rows.length === 0 ? (
-					<>
-						<Filler rows={emptyTopRows} prefix="top" />
-						<PlainLine text={centerCell("No matching command", rowWidth)} fg={colors.muted} />
-						<Filler rows={emptyBottomRows} prefix="bottom" />
-					</>
-				) : (
-					<>
-						{visibleRows.map((row, index) => {
-							const rowIndex = scrollTop + index
-							if (row._tag === "section") {
-								return <PlainLine key={`section-${row.scope}-${rowIndex}`} text={fitCell(` ${scopeLabels[row.scope]}`, rowWidth)} fg={colors.accent} bold />
-							}
+			}
+			footer={<PlainLine text="up/down select  enter run  ctrl-u clear  ctrl-w word  esc close" fg={colors.muted} />}
+		>
+			{rows.length === 0 ? (
+				<>
+					<Filler rows={emptyTopRows} prefix="top" />
+					<PlainLine text={centerCell("No matching command", rowWidth)} fg={colors.muted} />
+					<Filler rows={emptyBottomRows} prefix="bottom" />
+				</>
+			) : (
+				<>
+					{visibleRows.map((row, index) => {
+						const rowIndex = scrollTop + index
+						if (row._tag === "section") {
+							return <PlainLine key={`section-${row.scope}-${rowIndex}`} text={fitCell(` ${scopeLabels[row.scope]}`, rowWidth)} fg={colors.accent} bold />
+						}
 
-							const { command, commandIndex } = row
-							const isSelected = commandIndex === clampedIndex
-							const shortcut = command.shortcut ? trimCell(command.shortcut, 16) : ""
-							const rightWidth = shortcut.length === 0 ? 0 : Math.min(18, Math.max(8, shortcut.length + 1))
-							const trailingPadding = shortcut.length === 0 ? 0 : 1
-							const titleWidth = Math.max(8, rowWidth - rightWidth - trailingPadding - 2)
+						const { command, commandIndex } = row
+						const isSelected = commandIndex === clampedIndex
+						const shortcut = command.shortcut ? trimCell(command.shortcut, 16) : ""
+						const rightWidth = shortcut.length === 0 ? 0 : Math.min(18, Math.max(8, shortcut.length + 1))
+						const trailingPadding = shortcut.length === 0 ? 0 : 1
+						const titleWidth = Math.max(8, rowWidth - rightWidth - trailingPadding - 2)
 
-							return (
-								<box key={command.id} height={1}>
-									<TextLine width={rowWidth} bg={isSelected ? colors.selectedBg : undefined} fg={isSelected ? colors.selectedText : colors.text}>
-										<span fg={isSelected ? colors.accent : colors.muted}>{isSelected ? "▸" : " "}</span>
-										<span> </span>
-										{isSelected ? <span attributes={TextAttributes.BOLD}>{fitCell(command.title, titleWidth)}</span> : <span>{fitCell(command.title, titleWidth)}</span>}
-										{rightWidth > 0 ? <span fg={colors.muted}>{fitCell(shortcut, rightWidth, "right")}</span> : null}
-										{trailingPadding > 0 ? <span> </span> : null}
-									</TextLine>
-								</box>
-							)
-						})}
-						<Filler rows={bottomPaddingRows} prefix="pad" />
-					</>
-				)}
-			</box>
-			<Divider width={innerWidth} />
-			<box height={1} paddingLeft={1} paddingRight={1}>
-				<PlainLine text="up/down select  enter run  ctrl-u clear  ctrl-w word  esc close" fg={colors.muted} />
-			</box>
-		</ModalFrame>
+						return (
+							<box key={command.id} height={1}>
+								<TextLine width={rowWidth} bg={isSelected ? colors.selectedBg : undefined} fg={isSelected ? colors.selectedText : colors.text}>
+									<span fg={isSelected ? colors.accent : colors.muted}>{isSelected ? "▸" : " "}</span>
+									<span> </span>
+									{isSelected ? <span attributes={TextAttributes.BOLD}>{fitCell(command.title, titleWidth)}</span> : <span>{fitCell(command.title, titleWidth)}</span>}
+									{rightWidth > 0 ? <span fg={colors.muted}>{fitCell(shortcut, rightWidth, "right")}</span> : null}
+									{trailingPadding > 0 ? <span> </span> : null}
+								</TextLine>
+							</box>
+						)
+					})}
+					<Filler rows={bottomPaddingRows} prefix="pad" />
+				</>
+			)}
+		</StandardModal>
 	)
 }

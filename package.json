@@ -38,7 +38,7 @@
 		"changeset": "npm exec --package @changesets/cli@2.31.0 -- changeset",
 		"changeset:status": "npm exec --package @changesets/cli@2.31.0 -- changeset status",
 		"changeset:version": "npm exec --package @changesets/cli@2.31.0 -- changeset version",
-		"dev": "bun --watch bin/ghui.js",
+		"dev": "GHUI_MOTEL_PORT=${GHUI_MOTEL_PORT:-27686} bun --watch bin/ghui.js",
 		"start": "bun run src/index.tsx",
 		"start:mock": "GHUI_MOCK_PR_COUNT=400 GHUI_MOCK_REPO_COUNT=4 bun run src/index.tsx",
 		"test": "bun test test",

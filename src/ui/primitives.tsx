@@ -73,6 +73,84 @@ export const SeparatorColumn = ({ height, junctionRows }: { height: number; junc
 	)
 }
 
+export type StandardModalDims = {
+	readonly innerWidth: number
+	readonly contentWidth: number
+	readonly bodyHeight: number
+	readonly rowWidth: number
+}
+
+export const standardModalDims = (modalWidth: number, modalHeight: number): StandardModalDims => {
+	const innerWidth = Math.max(16, modalWidth - 2)
+	const contentWidth = Math.max(14, innerWidth - 2)
+	const bodyHeight = Math.max(1, modalHeight - 7)
+	return { innerWidth, contentWidth, bodyHeight, rowWidth: innerWidth }
+}
+
+export type HintItem = { readonly key: string; readonly label: string; readonly when?: boolean }
+
+export const HintRow = ({ items }: { items: readonly HintItem[] }) => {
+	const visible = items.filter((item) => item.when !== false)
+	return (
+		<TextLine>
+			{visible.flatMap((item, index) => [
+				<span key={`k${index}`} fg={colors.count}>{item.key}</span>,
+				<span key={`l${index}`} fg={colors.muted}>{` ${item.label}${index < visible.length - 1 ? "  " : ""}`}</span>,
+			])}
+		</TextLine>
+	)
+}
+
+export const StandardModal = ({
+	left,
+	top,
+	width,
+	height,
+	title,
+	titleFg = colors.accent,
+	headerRight,
+	subtitle,
+	footer,
+	bodyPadding = 0,
+	children,
+}: {
+	left: number
+	top: number
+	width: number
+	height: number
+	title: string
+	titleFg?: string
+	headerRight?: { readonly text: string; readonly pending?: boolean }
+	subtitle: React.ReactNode
+	footer: React.ReactNode
+	bodyPadding?: number
+	children: React.ReactNode
+}) => {
+	const { innerWidth, contentWidth, bodyHeight } = standardModalDims(width, height)
+	const rightText = headerRight?.text ?? ""
+	const headerGap = Math.max(1, contentWidth - title.length - rightText.length)
+	return (
+		<ModalFrame left={left} top={top} width={width} height={height} junctionRows={[2, height - 4]}>
+			<box height={1} paddingLeft={1} paddingRight={1}>
+				<TextLine>
+					<span fg={titleFg} attributes={TextAttributes.BOLD}>{title}</span>
+					{headerRight ? (
+						<>
+							<span fg={colors.muted}>{" ".repeat(headerGap)}</span>
+							<span fg={headerRight.pending ? colors.status.pending : colors.muted}>{headerRight.text}</span>
+						</>
+					) : null}
+				</TextLine>
+			</box>
+			<box height={1} paddingLeft={1} paddingRight={1}>{subtitle}</box>
+			<Divider width={innerWidth} />
+			<box height={bodyHeight} flexDirection="column" paddingLeft={bodyPadding} paddingRight={bodyPadding}>{children}</box>
+			<Divider width={innerWidth} />
+			<box height={1} paddingLeft={1} paddingRight={1}>{footer}</box>
+		</ModalFrame>
+	)
+}
+
 export const ModalFrame = ({
 	children,
 	left,

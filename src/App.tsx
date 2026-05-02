@@ -102,6 +102,10 @@ const DIFF_STICKY_HEADER_LINES = 2
 const LOADING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const
 const MAX_REPOSITORY_CACHE_ENTRIES = 8
 const LOAD_MORE_SELECTION_THRESHOLD = 8
+const DETAIL_PREFETCH_BEHIND = 1
+const DETAIL_PREFETCH_AHEAD = 3
+const DETAIL_PREFETCH_CONCURRENCY = 3
+const DETAIL_PREFETCH_DELAY_MS = 120
 
 const appendPullRequestPage = (existing: readonly PullRequestItem[], incoming: readonly PullRequestItem[]) => {
 	const seen = new Set(existing.map((pullRequest) => pullRequest.url))
@@ -353,6 +357,8 @@ const pullRequestMetadataText = (pullRequest: PullRequestItem) => {
 	return lines.join("\n")
 }
 
+const pullRequestDetailKey = (pullRequest: PullRequestItem) => `${pullRequest.url}:${pullRequest.headRefOid}`
+
 const isShiftG = (key: { readonly name: string; readonly shift?: boolean }) => key.name === "G" || key.name === "g" && key.shift
 
 const isThemeKey = (key: { readonly name: string; readonly ctrl?: boolean; readonly meta?: boolean }) => !key.ctrl && !key.meta && key.name.toLowerCase() === "t"
@@ -555,7 +561,8 @@ export const App = () => {
 	const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const pendingGTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const diffPrefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const detailHydrationRef = useRef<string | null>(null)
+	const detailPrefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const detailHydrationRef = useRef(new Map<string, symbol>())
 	const refreshGenerationRef = useRef(0)
 	const didMountQueueModeRef = useRef(false)
 	const lastPullRequestRefreshAtRef = useRef(0)
@@ -588,6 +595,8 @@ export const App = () => {
 	}, [renderer, themeId])
 
 	useEffect(() => () => {
+		refreshGenerationRef.current += 1
+		detailHydrationRef.current.clear()
 		if (noticeTimeoutRef.current !== null) {
 			clearTimeout(noticeTimeoutRef.current)
 		}
@@ -596,6 +605,9 @@ export const App = () => {
 		}
 		if (diffPrefetchTimeoutRef.current !== null) {
 			clearTimeout(diffPrefetchTimeoutRef.current)
+		}
+		if (detailPrefetchTimeoutRef.current !== null) {
+			clearTimeout(detailPrefetchTimeoutRef.current)
 		}
 	}, [])
 
@@ -675,7 +687,8 @@ export const App = () => {
 	}
 	const refreshPullRequests = (message?: string) => {
 		refreshGenerationRef.current += 1
-		detailHydrationRef.current = null
+		detailHydrationRef.current.clear()
+		if (detailPrefetchTimeoutRef.current !== null) clearTimeout(detailPrefetchTimeoutRef.current)
 		setLoadingMoreKey(null)
 		setPullRequestOverrides({})
 		if (message) {
@@ -693,7 +706,8 @@ export const App = () => {
 		setActiveView(view)
 		setSelectedIndex(registry.get(queueSelectionAtom)[viewCacheKey(view)] ?? 0)
 		setRecentlyCompletedPullRequests({})
-		detailHydrationRef.current = null
+		detailHydrationRef.current.clear()
+		if (detailPrefetchTimeoutRef.current !== null) clearTimeout(detailPrefetchTimeoutRef.current)
 		setLoadingMoreKey(null)
 		setDetailFullView(false)
 		setDiffFullView(false)
@@ -738,6 +752,39 @@ export const App = () => {
 			flashNotice(errorMessage(error))
 		}).finally(() => {
 			setLoadingMoreKey((current) => current === cacheKey ? null : current)
+		})
+		return true
+	}
+	const applyPullRequestDetail = (detail: PullRequestItem) => {
+		setQueueLoadCache((current) => {
+			const next = { ...current }
+			let changed = false
+			for (const [cacheKey, load] of Object.entries(current)) {
+				if (!load) continue
+				const index = load.data.findIndex((pullRequest) => pullRequest.url === detail.url)
+				if (index < 0) continue
+				const data = [...load.data]
+				data[index] = detail
+				changed = true
+				next[cacheKey] = { ...load, data }
+			}
+			return changed ? next : current
+		})
+	}
+	const hydratePullRequestDetails = (pullRequest: PullRequestItem, notifyError: boolean) => {
+		if (pullRequest.state !== "open" || pullRequest.detailLoaded) return false
+		const detailKey = pullRequestDetailKey(pullRequest)
+		if (detailHydrationRef.current.has(detailKey)) return false
+		if (!notifyError && detailHydrationRef.current.size >= DETAIL_PREFETCH_CONCURRENCY) return false
+		const token = Symbol(detailKey)
+		detailHydrationRef.current.set(detailKey, token)
+		const generation = refreshGenerationRef.current
+		void loadPullRequestDetails({ repository: pullRequest.repository, number: pullRequest.number }).then((detail) => {
+			if (generation === refreshGenerationRef.current && detailHydrationRef.current.get(detailKey) === token) applyPullRequestDetail(detail)
+		}).catch((error) => {
+			if (notifyError && generation === refreshGenerationRef.current && detailHydrationRef.current.get(detailKey) === token) flashNotice(errorMessage(error))
+		}).finally(() => {
+			if (detailHydrationRef.current.get(detailKey) === token) detailHydrationRef.current.delete(detailKey)
 		})
 		return true
 	}
@@ -913,32 +960,30 @@ export const App = () => {
 	}, [hasActiveLoadingIndicator])
 
 	useEffect(() => {
-		if (pullRequestStatus !== "ready" || !selectedPullRequest || selectedPullRequest.state !== "open" || selectedPullRequest.detailLoaded) return
-		const detailKey = `${selectedPullRequest.url}:${selectedPullRequest.headRefOid}`
-		if (detailHydrationRef.current === detailKey) return
-		detailHydrationRef.current = detailKey
-		const generation = refreshGenerationRef.current
-		void loadPullRequestDetails({ repository: selectedPullRequest.repository, number: selectedPullRequest.number }).then((detail) => {
-			if (generation !== refreshGenerationRef.current) return
-			setQueueLoadCache((current) => {
-				const next = { ...current }
-				let changed = false
-				for (const [cacheKey, load] of Object.entries(current)) {
-					if (!load || !load.data.some((pullRequest) => pullRequest.url === detail.url)) continue
-					changed = true
-					next[cacheKey] = {
-						...load,
-						data: load.data.map((pullRequest) => pullRequest.url === detail.url ? detail : pullRequest),
-					}
+		if (pullRequestStatus !== "ready" || !selectedPullRequest) return
+		hydratePullRequestDetails(selectedPullRequest, true)
+	}, [pullRequestStatus, selectedPullRequest?.url, selectedPullRequest?.headRefOid, selectedPullRequest?.state, selectedPullRequest?.detailLoaded, selectedPullRequest?.repository, selectedPullRequest?.number])
+
+	useEffect(() => {
+		if (detailPrefetchTimeoutRef.current !== null) clearTimeout(detailPrefetchTimeoutRef.current)
+		if (pullRequestStatus !== "ready" || visiblePullRequests.length === 0) return
+		detailPrefetchTimeoutRef.current = globalThis.setTimeout(() => {
+			detailPrefetchTimeoutRef.current = null
+			let started = 0
+			for (let distance = 1; distance <= Math.max(DETAIL_PREFETCH_AHEAD, DETAIL_PREFETCH_BEHIND); distance++) {
+				const offsets = [distance <= DETAIL_PREFETCH_AHEAD ? distance : null, distance <= DETAIL_PREFETCH_BEHIND ? -distance : null]
+				for (const offset of offsets) {
+					if (offset === null) continue
+					if (started >= DETAIL_PREFETCH_CONCURRENCY) return
+					const pullRequest = visiblePullRequests[selectedIndex + offset]
+					if (pullRequest && hydratePullRequestDetails(pullRequest, false)) started += 1
 				}
-				return changed ? next : current
-			})
-			if (detailHydrationRef.current === detailKey) detailHydrationRef.current = null
-		}).catch((error) => {
-			if (detailHydrationRef.current === detailKey) detailHydrationRef.current = null
-			flashNotice(errorMessage(error))
-		})
-	}, [loadPullRequestDetails, pullRequestStatus, selectedPullRequest?.url, selectedPullRequest?.headRefOid, selectedPullRequest?.state, selectedPullRequest?.detailLoaded, selectedPullRequest?.repository, selectedPullRequest?.number])
+			}
+		}, DETAIL_PREFETCH_DELAY_MS)
+		return () => {
+			if (detailPrefetchTimeoutRef.current !== null) clearTimeout(detailPrefetchTimeoutRef.current)
+		}
+	}, [pullRequestStatus, currentQueueCacheKey, selectedIndex, visiblePullRequests])
 
 	const detailPlaceholderContent = getDetailPlaceholderContent({
 		status: pullRequestStatus,
