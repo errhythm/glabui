@@ -9,11 +9,15 @@ const liftBinding = <C, C2>(binding: Binding<C>, project: (c2: C2) => C): Bindin
 	...(binding.meta ? { meta: binding.meta } : {}),
 })
 
-const liftBindingMaybe = <C, C2>(
+const liftBindingScope = <C, C2>(
 	binding: Binding<C>,
-	project: (c2: C2) => C | null,
+	project: (c2: C2) => C | null | undefined | false,
 ): Binding<C2> => {
-	const inScope = (c2: C2): C | null => project(c2)
+	const inScope = (c2: C2): C | null => {
+		const result = project(c2)
+		if (result === null || result === undefined || result === false) return null
+		return result
+	}
 	return {
 		sequence: binding.sequence,
 		when: (c2: C2) => {
@@ -75,8 +79,23 @@ export class Keymap<C> {
 		return new Keymap<C2>(this.bindings.map((b) => liftBinding(b, project)))
 	}
 
+	/** Total context lift. Alias for `contramap` with a more readable name. */
+	lift<C2>(project: (ctx: C2) => C): Keymap<C2> {
+		return this.contramap(project)
+	}
+
+	/**
+	 * Partial context lift: if `project` returns null/undefined/false, the
+	 * binding is inactive for this context. The falsy-friendly form lets you
+	 * write `scope((a) => a.flag && a.sub)` without ternary noise.
+	 */
+	scope<C2>(project: (ctx: C2) => C | null | undefined | false): Keymap<C2> {
+		return new Keymap<C2>(this.bindings.map((b) => liftBindingScope(b, project)))
+	}
+
+	/** @deprecated Use {@link scope}. Same behavior; clearer name. */
 	contramapMaybe<C2>(project: (ctx: C2) => C | null): Keymap<C2> {
-		return new Keymap<C2>(this.bindings.map((b) => liftBindingMaybe(b, project)))
+		return this.scope(project)
 	}
 
 	restrict(predicate: (ctx: C) => boolean): Keymap<C> {

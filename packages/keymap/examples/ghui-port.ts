@@ -1,12 +1,13 @@
 /**
- * Self-contained, compiling translation of ghui's keyboard surface into
- * @ghui/keymap. Mocks the minimal ghui types inline so the file typechecks
- * without depending on the rest of the project. Demonstrates how each
- * useScopedBindings layer in src/App.tsx becomes an importable Keymap value
- * over its own narrow context.
+ * Self-contained, compiling translation of ghui's keyboard surface using the
+ * sweetened `context<C>()` API. Each layer's context is declared once with
+ * `context<Ctx>()`; commands are then plain config objects passed positionally.
+ *
+ * Inside the App-level glue, `keymap.scope((a) => cond && a.sub)` reads the
+ * way you actually think about scoping — a single `&&` chain, no ternary.
  */
 
-import { command, Keymap } from "../src/index.ts"
+import { context, Keymap } from "../src/index.ts"
 import { type Scrollable, scrollCommands } from "../src/scroll.ts"
 
 // ─── Mocked ghui types (minimal subset) ────────────────────────────────────
@@ -18,17 +19,21 @@ interface PullRequest {
 
 type DiffCommentSide = "LEFT" | "RIGHT"
 
-// ─── Per-modal contexts ────────────────────────────────────────────────────
+// ─── CloseModal ────────────────────────────────────────────────────────────
 
 export interface CloseModalCtx {
 	readonly closeModal: () => void
 	readonly confirmClose: () => void
 }
 
-export const closeModalKeymap: Keymap<CloseModalCtx> = Keymap.union(
-	command({ id: "close-modal.cancel",  title: "Cancel",              keys: ["escape"], run: (s) => s.closeModal() }),
-	command({ id: "close-modal.confirm", title: "Close pull request", keys: ["return"], run: (s) => s.confirmClose() }),
+const Close = context<CloseModalCtx>()
+
+export const closeModalKeymap = Close(
+	{ id: "close-modal.cancel",  title: "Cancel",             keys: ["escape"], run: (s) => s.closeModal() },
+	{ id: "close-modal.confirm", title: "Close pull request", keys: ["return"], run: (s) => s.confirmClose() },
 )
+
+// ─── MergeModal ────────────────────────────────────────────────────────────
 
 export interface MergeModalCtx {
 	readonly availableActionCount: number
@@ -37,17 +42,19 @@ export interface MergeModalCtx {
 	readonly moveSelection: (delta: -1 | 1) => void
 }
 
-export const mergeModalKeymap: Keymap<MergeModalCtx> = Keymap.union(
-	command({ id: "merge.cancel", title: "Cancel", keys: ["escape"], run: (s) => s.closeModal() }),
-	command({
+const Merge = context<MergeModalCtx>()
+
+export const mergeModalKeymap = Merge(
+	{ id: "merge.cancel", title: "Cancel", keys: ["escape"], run: (s) => s.closeModal() },
+	{
 		id: "merge.confirm",
 		title: "Merge",
 		keys: ["return"],
 		enabled: (s) => s.availableActionCount > 0 ? true : "No merge actions available.",
 		run: (s) => s.confirmMerge(),
-	}),
-	command({ id: "merge.up",   title: "Up",   keys: ["k", "up"],   run: (s) => s.moveSelection(-1) }),
-	command({ id: "merge.down", title: "Down", keys: ["j", "down"], run: (s) => s.moveSelection(1) }),
+	},
+	{ id: "merge.up",   title: "Up",   keys: ["k", "up"],   run: (s) => s.moveSelection(-1) },
+	{ id: "merge.down", title: "Down", keys: ["j", "down"], run: (s) => s.moveSelection(1) },
 )
 
 // ─── Diff full-view (regular mode) ─────────────────────────────────────────
@@ -64,19 +71,21 @@ export interface DiffCtx extends Scrollable {
 	readonly openInBrowser: () => void
 }
 
-export const diffViewKeymap: Keymap<DiffCtx> = Keymap.union(
+const Diff = context<DiffCtx>()
+
+export const diffViewKeymap = Diff(
 	scrollCommands<DiffCtx>(),
-	command({ id: "diff.close",         title: "Close diff",       keys: ["escape", "return"], run: (s) => s.closeDiff() }),
-	command({ id: "diff.comment-mode",  title: "Comment mode",     keys: ["c"],                run: (s) => s.enterCommentMode() }),
-	command({ id: "diff.toggle-view",   title: "Toggle view",      keys: ["v"],                run: (s) => s.toggleView() }),
-	command({ id: "diff.toggle-wrap",   title: "Toggle wrap",      keys: ["w"],                run: (s) => s.toggleWrap() }),
-	command({ id: "diff.reload",        title: "Reload",           keys: ["r"],                run: (s) => s.reload() }),
-	command({ id: "diff.next-file",     title: "Next file",        keys: ["]", "right", "l"],  run: (s) => s.nextFile() }),
-	command({ id: "diff.previous-file", title: "Previous file",    keys: ["[", "left", "h"],   run: (s) => s.previousFile() }),
-	command({ id: "diff.open-browser",  title: "Open in browser",  keys: ["o"],                run: (s) => s.openInBrowser() }),
+	{ id: "diff.close",         title: "Close diff",      keys: ["escape", "return"], run: (s) => s.closeDiff() },
+	{ id: "diff.comment-mode",  title: "Comment mode",    keys: ["c"],                run: (s) => s.enterCommentMode() },
+	{ id: "diff.toggle-view",   title: "Toggle view",     keys: ["v"],                run: (s) => s.toggleView() },
+	{ id: "diff.toggle-wrap",   title: "Toggle wrap",     keys: ["w"],                run: (s) => s.toggleWrap() },
+	{ id: "diff.reload",        title: "Reload",          keys: ["r"],                run: (s) => s.reload() },
+	{ id: "diff.next-file",     title: "Next file",       keys: ["]", "right", "l"],  run: (s) => s.nextFile() },
+	{ id: "diff.previous-file", title: "Previous file",   keys: ["[", "left", "h"],   run: (s) => s.previousFile() },
+	{ id: "diff.open-browser",  title: "Open in browser", keys: ["o"],                run: (s) => s.openInBrowser() },
 )
 
-// ─── Diff comment sub-mode (an entirely separate keymap) ───────────────────
+// ─── Diff comment sub-mode ─────────────────────────────────────────────────
 
 export interface DiffCommentCtx {
 	readonly halfPage: number
@@ -92,26 +101,28 @@ export interface DiffCommentCtx {
 	readonly previousFile: () => void
 }
 
-export const diffCommentKeymap: Keymap<DiffCommentCtx> = Keymap.union(
-	command({ id: "diff-comment.exit",     title: "Exit comment mode", keys: ["escape"], run: (s) => s.exitCommentMode() }),
-	command({ id: "diff-comment.toggle",   title: "Toggle comment mode", keys: ["c"],    run: (s) => s.toggleCommentMode() }),
-	command({
+const DC = context<DiffCommentCtx>()
+
+export const diffCommentKeymap = DC(
+	{ id: "diff-comment.exit",   title: "Exit comment mode",   keys: ["escape"], run: (s) => s.exitCommentMode() },
+	{ id: "diff-comment.toggle", title: "Toggle comment mode", keys: ["c"],      run: (s) => s.toggleCommentMode() },
+	{
 		id: "diff-comment.open",
 		title: "Open / reply",
 		keys: ["return"],
 		run: (s) => s.hasThread ? s.openThreadModal() : s.openInlineModal(),
-	}),
-	command({ id: "diff-comment.add",        title: "Add comment",   keys: ["a"],                                            run: (s) => s.addComment() }),
-	command({ id: "diff-comment.up",         title: "Up",            keys: ["k", "up"],                                      run: (s) => s.moveAnchor(-1) }),
-	command({ id: "diff-comment.down",       title: "Down",          keys: ["j", "down"],                                    run: (s) => s.moveAnchor(1) }),
-	command({ id: "diff-comment.jump-up",    title: "Jump up",       keys: ["shift+k", "shift+up", "meta+k", "meta+up"],     run: (s) => s.moveAnchor(-8) }),
-	command({ id: "diff-comment.jump-down",  title: "Jump down",     keys: ["shift+j", "shift+down", "meta+j", "meta+down"], run: (s) => s.moveAnchor(8) }),
-	command({ id: "diff-comment.half-up",    title: "Half page up",  keys: ["pageup", "ctrl+u"],                             run: (s) => s.moveAnchor(-s.halfPage) }),
-	command({ id: "diff-comment.half-down",  title: "Half page down", keys: ["pagedown", "ctrl+d", "ctrl+v"],                run: (s) => s.moveAnchor(s.halfPage) }),
-	command({ id: "diff-comment.left-side",  title: "Old side",      keys: ["left", "h"],                                    run: (s) => s.selectSide("LEFT") }),
-	command({ id: "diff-comment.right-side", title: "New side",      keys: ["right", "l"],                                   run: (s) => s.selectSide("RIGHT") }),
-	command({ id: "diff-comment.next-file",  title: "Next file",     keys: ["]"],                                            run: (s) => s.nextFile() }),
-	command({ id: "diff-comment.prev-file",  title: "Previous file", keys: ["["],                                            run: (s) => s.previousFile() }),
+	},
+	{ id: "diff-comment.add",        title: "Add comment",   keys: ["a"],                                            run: (s) => s.addComment() },
+	{ id: "diff-comment.up",         title: "Up",            keys: ["k", "up"],                                      run: (s) => s.moveAnchor(-1) },
+	{ id: "diff-comment.down",       title: "Down",          keys: ["j", "down"],                                    run: (s) => s.moveAnchor(1) },
+	{ id: "diff-comment.jump-up",    title: "Jump up",       keys: ["shift+k", "shift+up", "meta+k", "meta+up"],     run: (s) => s.moveAnchor(-8) },
+	{ id: "diff-comment.jump-down",  title: "Jump down",     keys: ["shift+j", "shift+down", "meta+j", "meta+down"], run: (s) => s.moveAnchor(8) },
+	{ id: "diff-comment.half-up",    title: "Half page up",  keys: ["pageup", "ctrl+u"],                             run: (s) => s.moveAnchor(-s.halfPage) },
+	{ id: "diff-comment.half-down",  title: "Half page down", keys: ["pagedown", "ctrl+d", "ctrl+v"],                run: (s) => s.moveAnchor(s.halfPage) },
+	{ id: "diff-comment.left-side",  title: "Old side",      keys: ["left", "h"],                                    run: (s) => s.selectSide("LEFT") },
+	{ id: "diff-comment.right-side", title: "New side",      keys: ["right", "l"],                                   run: (s) => s.selectSide("RIGHT") },
+	{ id: "diff-comment.next-file",  title: "Next file",     keys: ["]"],                                            run: (s) => s.nextFile() },
+	{ id: "diff-comment.prev-file",  title: "Previous file", keys: ["["],                                            run: (s) => s.previousFile() },
 )
 
 // ─── Detail full-view ──────────────────────────────────────────────────────
@@ -130,23 +141,25 @@ export interface DetailCtx extends Scrollable {
 	readonly copyMetadata: () => void
 }
 
+const Detail = context<DetailCtx>()
+
 const requirePullRequest = (s: DetailCtx) =>
 	s.selectedPullRequest !== null ? true : "No pull request selected."
 
-export const detailKeymap: Keymap<DetailCtx> = Keymap.union(
+export const detailKeymap = Detail(
 	scrollCommands<DetailCtx>(),
-	command({ id: "detail.close",         title: "Close",       keys: ["escape", "return"], run: (s) => s.closeDetail() }),
-	command({ id: "detail.theme",         title: "Theme",       keys: ["t"],                run: (s) => s.openTheme() }),
-	command({ id: "detail.diff",          title: "Open diff",   keys: ["d"], enabled: requirePullRequest, run: (s) => s.openDiff() }),
-	command({ id: "detail.close-pr",      title: "Close PR",    keys: ["x"],
+	{ id: "detail.close",        title: "Close",        keys: ["escape", "return"], run: (s) => s.closeDetail() },
+	{ id: "detail.theme",        title: "Theme",        keys: ["t"],                run: (s) => s.openTheme() },
+	{ id: "detail.diff",         title: "Open diff",    keys: ["d"], enabled: requirePullRequest, run: (s) => s.openDiff() },
+	{ id: "detail.close-pr",     title: "Close PR",     keys: ["x"],
 		enabled: (s) => s.selectedPullRequest?.state === "open" ? true : "Pull request is not open.",
-		run: (s) => s.closePullRequest() }),
-	command({ id: "detail.labels",        title: "Labels",      keys: ["l"], enabled: requirePullRequest, run: (s) => s.openLabels() }),
-	command({ id: "detail.merge",         title: "Merge",       keys: ["m", "shift+m"], enabled: requirePullRequest, run: (s) => s.openMerge() }),
-	command({ id: "detail.toggle-draft",  title: "Toggle draft",keys: ["s", "shift+s"], enabled: requirePullRequest, run: (s) => s.toggleDraft() }),
-	command({ id: "detail.refresh",       title: "Refresh",     keys: ["r"],                run: (s) => s.refresh() }),
-	command({ id: "detail.open-browser",  title: "Open",        keys: ["o"], enabled: requirePullRequest, run: (s) => s.openInBrowser() }),
-	command({ id: "detail.copy",          title: "Copy",        keys: ["y"], enabled: requirePullRequest, run: (s) => s.copyMetadata() }),
+		run: (s) => s.closePullRequest() },
+	{ id: "detail.labels",       title: "Labels",       keys: ["l"], enabled: requirePullRequest, run: (s) => s.openLabels() },
+	{ id: "detail.merge",        title: "Merge",        keys: ["m", "shift+m"], enabled: requirePullRequest, run: (s) => s.openMerge() },
+	{ id: "detail.toggle-draft", title: "Toggle draft", keys: ["s", "shift+s"], enabled: requirePullRequest, run: (s) => s.toggleDraft() },
+	{ id: "detail.refresh",      title: "Refresh",      keys: ["r"],                run: (s) => s.refresh() },
+	{ id: "detail.open-browser", title: "Open",         keys: ["o"], enabled: requirePullRequest, run: (s) => s.openInBrowser() },
+	{ id: "detail.copy",         title: "Copy",         keys: ["y"], enabled: requirePullRequest, run: (s) => s.copyMetadata() },
 )
 
 // ─── Global / PR-list nav ──────────────────────────────────────────────────
@@ -163,20 +176,22 @@ export interface ListNavCtx {
 	readonly visibleCount: number
 }
 
-export const listNavKeymap: Keymap<ListNavCtx> = Keymap.union(
-	command({ id: "filter.open",  title: "Filter", keys: ["/"],         run: (s) => s.openFilter() }),
-	command({ id: "filter.clear", title: "Clear filter", keys: ["escape"],
+const List = context<ListNavCtx>()
+
+export const listNavKeymap = List(
+	{ id: "filter.open",  title: "Filter",         keys: ["/"],                                               run: (s) => s.openFilter() },
+	{ id: "filter.clear", title: "Clear filter",   keys: ["escape"],
 		enabled: (s) => s.hasFilterQuery ? true : "No filter to clear.",
-		run: (s) => s.clearFilter() }),
-	command({ id: "list.theme",   title: "Theme",  keys: ["t"],         run: (s) => s.openTheme() }),
-	command({ id: "list.next-tab", title: "Next view", keys: ["tab"],   run: (s) => s.switchQueueMode(1) }),
-	command({ id: "list.prev-tab", title: "Previous view", keys: ["shift+tab"], run: (s) => s.switchQueueMode(-1) }),
-	command({ id: "list.step-up",   title: "Up",   keys: ["k", "up"],   run: (s) => s.stepSelected(-1) }),
-	command({ id: "list.step-down", title: "Down", keys: ["j", "down"], run: (s) => s.stepSelected(1) }),
-	command({ id: "list.group-prev", title: "Prev group", keys: ["[", "shift+k", "meta+up", "meta+k"], run: (s) => s.stepGroup(-1) }),
-	command({ id: "list.group-next", title: "Next group", keys: ["]", "shift+j", "meta+down", "meta+j"], run: (s) => s.stepGroup(1) }),
-	command({ id: "list.top",       title: "Top",       keys: ["g g"],    run: (s) => s.setSelected(0) }),
-	command({ id: "list.bottom",    title: "Bottom",    keys: ["shift+g"], run: (s) => s.setSelected(Math.max(0, s.visibleCount - 1)) }),
+		run: (s) => s.clearFilter() },
+	{ id: "list.theme",      title: "Theme",       keys: ["t"],                                                run: (s) => s.openTheme() },
+	{ id: "list.next-tab",   title: "Next view",   keys: ["tab"],                                              run: (s) => s.switchQueueMode(1) },
+	{ id: "list.prev-tab",   title: "Previous view", keys: ["shift+tab"],                                      run: (s) => s.switchQueueMode(-1) },
+	{ id: "list.step-up",    title: "Up",          keys: ["k", "up"],                                          run: (s) => s.stepSelected(-1) },
+	{ id: "list.step-down",  title: "Down",        keys: ["j", "down"],                                        run: (s) => s.stepSelected(1) },
+	{ id: "list.group-prev", title: "Prev group",  keys: ["[", "shift+k", "meta+up", "meta+k"],                run: (s) => s.stepGroup(-1) },
+	{ id: "list.group-next", title: "Next group",  keys: ["]", "shift+j", "meta+down", "meta+j"],              run: (s) => s.stepGroup(1) },
+	{ id: "list.top",        title: "Top",         keys: ["g g"],                                              run: (s) => s.setSelected(0) },
+	{ id: "list.bottom",     title: "Bottom",      keys: ["shift+g"],                                          run: (s) => s.setSelected(Math.max(0, s.visibleCount - 1)) },
 )
 
 // ─── App-level glue ────────────────────────────────────────────────────────
@@ -197,27 +212,23 @@ export interface AppCtx {
 	readonly openCommandPalette: () => void
 }
 
+const App = context<AppCtx>()
+
 const inGlobal = (a: AppCtx): boolean =>
 	!a.diffFullView && !a.detailFullView && !a.anyModalActive
 
-export const appKeymap: Keymap<AppCtx> = Keymap.union(
-	// Always-on: command palette
-	command<AppCtx>({
-		id: "command.open",
-		title: "Open command palette",
-		keys: ["ctrl+p", "meta+k"],
-		run: (s) => s.openCommandPalette(),
-	}),
+export const appKeymap = App(
+	{ id: "command.open", title: "Open command palette", keys: ["ctrl+p", "meta+k"], run: (s) => s.openCommandPalette() },
 
-	// Modal layers — each lifts its narrow context with a guard
-	closeModalKeymap.contramapMaybe((a) => a.closeModalActive ? a.closeModal : null),
-	mergeModalKeymap.contramapMaybe((a) => a.mergeModalActive ? a.mergeModal : null),
+	closeModalKeymap.scope((a) => a.closeModalActive && a.closeModal),
+	mergeModalKeymap.scope((a) => a.mergeModalActive && a.mergeModal),
 
-	// Full-view layers
-	diffViewKeymap.contramapMaybe((a) => a.diffFullView && !a.diffCommentMode ? a.diff : null),
-	diffCommentKeymap.contramapMaybe((a) => a.diffFullView && a.diffCommentMode ? a.diffComment : null),
-	detailKeymap.contramapMaybe((a) => a.detailFullView ? a.detail : null),
+	diffViewKeymap.scope((a) => a.diffFullView && !a.diffCommentMode && a.diff),
+	diffCommentKeymap.scope((a) => a.diffFullView && a.diffCommentMode && a.diffComment),
+	detailKeymap.scope((a) => a.detailFullView && a.detail),
 
-	// PR-list nav: only when no modal/full-view is active
-	listNavKeymap.contramapMaybe((a) => inGlobal(a) ? a.listNav : null),
+	listNavKeymap.scope((a) => inGlobal(a) && a.listNav),
 )
+
+// Quiet unused-warning for users who only import context types.
+export type _Unused = Keymap<AppCtx>

@@ -4,23 +4,35 @@ A small, opinionated keymap library where **bindings are values you compose**,
 **state is input**, and **dispatch is a pure function**.
 
 ```ts
-import { command, createDispatcher, Keymap, parseKey, snapshot } from "@ghui/keymap"
+import { context, scrollCommands } from "@ghui/keymap"
 
 interface DiffState {
+	halfPage: number
 	scrollBy: (delta: number) => void
+	scrollTo: (line: number) => void
+	close: () => void
 }
 
-const diffKeymap: Keymap<DiffState> = Keymap.union(
-	command({ id: "diff.up",   title: "Up",   keys: ["k", "up"],   run: (s) => s.scrollBy(-1) }),
-	command({ id: "diff.down", title: "Down", keys: ["j", "down"], run: (s) => s.scrollBy(1) }),
-	command({ id: "diff.top",  title: "Top",  keys: ["g g"],       run: (s) => s.scrollBy(-Infinity) }),
+const Diff = context<DiffState>()
+
+const diffKeymap = Diff(
+	scrollCommands<DiffState>(),
+	{ id: "diff.close", title: "Close", keys: ["escape"], run: (s) => s.close() },
 )
 
 interface AppCtx { view: "list" | "diff"; diff: DiffState }
-const appKeymap: Keymap<AppCtx> = diffKeymap.contramapMaybe(
-	(app) => app.view === "diff" ? app.diff : null
+const App = context<AppCtx>()
+
+const appKeymap = App(
+	diffKeymap.scope((a) => a.view === "diff" && a.diff),
 )
 ```
+
+Three things doing the work:
+
+- `context<C>()` returns a callable bound to a context type. Every command config inside infers `s: C` automatically — no `<DiffState>` repeated per call.
+- Each item is either a `CommandConfig` literal or an existing `Keymap<C>`. Mix freely.
+- `keymap.scope((a) => cond && a.sub)` is the falsy-friendly form of `contramapMaybe` — write your scoping as a `&&` chain, not a ternary.
 
 ## Why this shape
 

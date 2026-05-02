@@ -7,6 +7,7 @@ export {
 	isCommand,
 } from "./binding.ts"
 export { command, type CommandConfig } from "./command.ts"
+export { context, type Context, type ContextItem } from "./context.ts"
 export {
 	type Clock,
 	createDispatcher,

@@ -211,6 +211,48 @@ describe("Keymap.active", () => {
 	})
 })
 
+describe("Keymap.scope — falsy-friendly contramapMaybe", () => {
+	test("returning false deactivates", () => {
+		const km = makeKm(1)
+		const lifted = km.scope((b: CtxB) => b.inner ? b.inner : false)
+		expect(isBindingActive(lifted.bindings[0]!, { inner: null })).toBe("out of scope")
+		expect(isBindingActive(lifted.bindings[0]!, { inner: ctxA() })).toBe(true)
+	})
+
+	test("returning undefined deactivates", () => {
+		const km = makeKm(1)
+		const lifted = km.scope((b: CtxB) => b.inner ?? undefined)
+		expect(isBindingActive(lifted.bindings[0]!, { inner: null })).toBe("out of scope")
+	})
+
+	test("&& chain reads cleanly without ternary", () => {
+		const km = makeKm(1)
+		interface Bigger { readonly flag: boolean; readonly inner: CtxA }
+		const lifted = km.scope((b: Bigger) => b.flag && b.inner)
+		expect(isBindingActive(lifted.bindings[0]!, { flag: false, inner: ctxA() })).toBe("out of scope")
+		expect(isBindingActive(lifted.bindings[0]!, { flag: true, inner: ctxA() })).toBe(true)
+	})
+
+	test("contramapMaybe still works (delegates to scope)", () => {
+		const km = makeKm(1)
+		const lifted = km.contramapMaybe((b: CtxB) => b.inner)
+		expect(isBindingActive(lifted.bindings[0]!, { inner: null })).toBe("out of scope")
+		expect(isBindingActive(lifted.bindings[0]!, { inner: ctxA() })).toBe(true)
+	})
+})
+
+describe("Keymap.lift — alias for contramap", () => {
+	test("same behavior as contramap", () => {
+		const km = makeKm(5)
+		const project = (b: CtxB): CtxA => b.inner ?? ctxA()
+		const ctxLift: CtxB = { inner: ctxA() }
+		const ctxContra: CtxB = { inner: ctxA() }
+		km.contramap(project).bindings[0]!.action(ctxContra)
+		km.lift(project).bindings[0]!.action(ctxLift)
+		expect(ctxLift.inner!.counter.value).toBe(ctxContra.inner!.counter.value)
+	})
+})
+
 describe("Keymap iteration", () => {
 	test("Symbol.iterator yields bindings", () => {
 		const a = makeKm(1, "a")
