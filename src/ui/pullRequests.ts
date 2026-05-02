@@ -33,6 +33,33 @@ export const reviewIcon = (pullRequest: PullRequestItem) => {
 	return REVIEW_ICON[pullRequest.reviewStatus]
 }
 
+export interface PullRequestRowDisplay {
+	readonly indicatorFg: string
+	readonly rowFg: string
+	readonly numberFg: string
+	readonly checkFg: string
+	readonly checkText: string
+}
+
+export const pullRequestRowDisplay = (pullRequest: PullRequestItem, selected: boolean): PullRequestRowDisplay => {
+	const isMerged = pullRequest.state === "merged"
+	const isClosed = pullRequest.state === "closed"
+	const isFinal = isMerged || isClosed
+	const indicatorFg = isMerged ? colors.status.passing
+		: isClosed ? colors.muted
+		: pullRequest.autoMergeEnabled ? colors.accent
+		: statusColor(pullRequest.reviewStatus)
+	const checkFg = isMerged ? colors.status.passing : isClosed ? colors.muted : statusColor(pullRequest.checkStatus)
+	const checkText = isMerged ? "merged" : isClosed ? "closed" : pullRequest.checkSummary?.replace(/^checks\s+/, "") ?? ""
+	return {
+		indicatorFg,
+		rowFg: selected ? colors.selectedText : isFinal ? colors.muted : colors.text,
+		numberFg: selected ? colors.accent : isFinal ? colors.muted : colors.count,
+		checkFg,
+		checkText,
+	}
+}
+
 const fallbackLabelColor = (name: string) => {
 	let hash = 0
 	for (const char of name) {

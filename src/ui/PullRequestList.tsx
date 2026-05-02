@@ -3,7 +3,7 @@ import type { LoadStatus, PullRequestItem } from "../domain.js"
 import { daysOpen } from "../date.js"
 import { colors } from "./colors.js"
 import { fitCell, PlainLine, SectionTitle, TextLine } from "./primitives.js"
-import { checkLabel, repoColor, reviewIcon, statusColor } from "./pullRequests.js"
+import { pullRequestRowDisplay, repoColor, reviewIcon } from "./pullRequests.js"
 
 export type PullRequestGroups = Array<[string, PullRequestItem[]]>
 
@@ -118,28 +118,21 @@ const PullRequestRow = ({
 	filterText: string
 	onSelect: () => void
 }) => {
-	const isClosed = pullRequest.state === "closed"
-	const isMerged = pullRequest.state === "merged"
-	const isFinal = isClosed || isMerged
-	const checkText = isMerged ? "merged" : isClosed ? "closed" : checkLabel(pullRequest)?.replace(/^checks\s+/, "") ?? ""
 	const ageText = `${daysOpen(pullRequest.createdAt)}d`
 	const { reviewWidth, checkWidth, ageWidth, numberWidth, titleWidth } = getRowLayout(contentWidth, numWidth, ageColWidth)
 	const rowWidth = reviewWidth + 1 + numberWidth + 1 + titleWidth + checkWidth + ageWidth
 	const fillerWidth = Math.max(0, contentWidth - rowWidth)
-	const indicatorColor = isMerged ? colors.status.passing : isClosed ? colors.muted : pullRequest.autoMergeEnabled ? colors.accent : statusColor(pullRequest.reviewStatus)
-	const rowTextColor = selected ? colors.selectedText : isFinal ? colors.muted : colors.text
-	const numberColor = selected ? colors.accent : isFinal ? colors.muted : colors.count
-	const checkColor = isMerged ? colors.status.passing : isClosed ? colors.muted : statusColor(pullRequest.checkStatus)
+	const display = pullRequestRowDisplay(pullRequest, selected)
 
 	return (
 		<box width={contentWidth} height={1} onMouseDown={onSelect}>
-			<TextLine width={contentWidth} fg={rowTextColor} bg={selected ? colors.selectedBg : undefined}>
-				<span fg={indicatorColor}>{fitCell(reviewIcon(pullRequest), reviewWidth)}</span>
+			<TextLine width={contentWidth} fg={display.rowFg} bg={selected ? colors.selectedBg : undefined}>
+				<span fg={display.indicatorFg}>{fitCell(reviewIcon(pullRequest), reviewWidth)}</span>
 				<span> </span>
-				<span fg={numberColor}><MatchedCell text={`#${pullRequest.number}`} width={numberWidth} query={filterText} align="right" /></span>
+				<span fg={display.numberFg}><MatchedCell text={`#${pullRequest.number}`} width={numberWidth} query={filterText} align="right" /></span>
 				<span> </span>
 				<span><MatchedCell text={pullRequest.title} width={titleWidth} query={filterText} /></span>
-				<span fg={checkColor}>{fitCell(checkText, checkWidth, "right")}</span>
+				<span fg={display.checkFg}>{fitCell(display.checkText, checkWidth, "right")}</span>
 				<span fg={colors.muted}>{fitCell(ageText, ageWidth, "right")}</span>
 				{fillerWidth > 0 ? <span>{" ".repeat(fillerWidth)}</span> : null}
 			</TextLine>
