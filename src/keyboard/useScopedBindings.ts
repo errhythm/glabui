@@ -4,22 +4,17 @@ import { useRef } from "react"
 export type ScopedBindingAction = (() => void) | string
 
 export interface ScopedBindingsOptions {
-	/** When false, bindings exist on the keymap but don't dispatch. */
 	readonly when: boolean
-	/** Map of key string (e.g. "j", "ctrl+p", "meta+left") to action. */
 	readonly bindings: Readonly<Record<string, ScopedBindingAction>>
 }
 
 /**
  * Wraps `@opentui/keymap/react`'s `useBindings` so callers don't have to write
  * the ref dance themselves. The layer registers exactly once (deps=[]); the
- * `when` flag and the action callbacks read the latest values via refs.
+ * `when` flag and the action callbacks read latest values via refs, so the
+ * binding-shape is captured at first render but closures stay fresh.
  *
- * - `bindings` shape (which keys are bound) is captured at first render. Don't
- *   change which keys you bind across renders — only what they do.
- * - Action values are read fresh on every dispatch, so closures over component
- *   state are always current.
- * - String actions are passed through as named-command references.
+ * Don't change which keys you bind across renders — only what they do.
  */
 export const useScopedBindings = ({ when, bindings }: ScopedBindingsOptions): void => {
 	const activeRef = useRef(false)
@@ -38,4 +33,34 @@ export const useScopedBindings = ({ when, bindings }: ScopedBindingsOptions): vo
 			},
 		})),
 	}), [])
+}
+
+/**
+ * Vim-style scroll bindings: j/k/up/down for line scroll, ctrl-u/d/v + pageup/down
+ * for half-page scroll. When `scrollTo` is given, also adds home/end and gg/G to
+ * jump to start/end.
+ */
+export const scrollBindings = (
+	scrollBy: (delta: number) => void,
+	halfPage: number,
+	scrollTo?: (y: number) => void,
+): Record<string, ScopedBindingAction> => {
+	const bindings: Record<string, ScopedBindingAction> = {
+		up: () => scrollBy(-1),
+		k: () => scrollBy(-1),
+		down: () => scrollBy(1),
+		j: () => scrollBy(1),
+		pageup: () => scrollBy(-halfPage),
+		pagedown: () => scrollBy(halfPage),
+		"ctrl+u": () => scrollBy(-halfPage),
+		"ctrl+d": () => scrollBy(halfPage),
+		"ctrl+v": () => scrollBy(halfPage),
+	}
+	if (scrollTo) {
+		bindings.home = () => scrollTo(0)
+		bindings.end = () => scrollTo(Number.MAX_SAFE_INTEGER)
+		bindings["g g"] = () => scrollTo(0)
+		bindings["shift+g"] = () => scrollTo(Number.MAX_SAFE_INTEGER)
+	}
+	return bindings
 }

@@ -4,15 +4,12 @@ import { useRef } from "react"
 import type { AppCommand } from "../commands.js"
 
 /**
- * Register every AppCommand as a named keymap command. Bindings can then
- * reference commands by ID (`cmd: "pull.refresh"`) instead of inline closures,
- * which makes the keymap's introspection (queryCommands, useActiveKeys with
- * metadata) work for our own commands.
+ * Registers each AppCommand under its ID as a named keymap command, so
+ * bindings can reference them by ID (`cmd: "pull.refresh"`) and the keymap's
+ * introspection (queryCommands, useActiveKeys) sees our commands.
  *
- * The set of command IDs is captured at first render — adding a new AppCommand
- * to the static `buildAppCommands` list later in the session would not get
- * picked up. That's fine for ghui where the static list is fixed; the runner
- * itself reads the latest AppCommand on every dispatch via `runCommandByIdRef`.
+ * The set of IDs is captured at first render — adding to the static list
+ * later in the session would not be picked up.
  */
 export const useAppCommandRegistry = (
 	appCommands: readonly AppCommand[],

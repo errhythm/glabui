@@ -1,7 +1,7 @@
 import type { DiffRenderable, PasteEvent, ScrollBoxRenderable } from "@opentui/core"
 import { RegistryContext, useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import { useAppCommandRegistry } from "./keyboard/useAppCommandRegistry.js"
-import { useScopedBindings } from "./keyboard/useScopedBindings.js"
+import { scrollBindings, useScopedBindings } from "./keyboard/useScopedBindings.js"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
 import { Cause, Effect, Layer, Schedule } from "effect"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
@@ -1755,25 +1755,6 @@ export const App = () => {
 		&& !detailFullView
 		&& !filterMode
 	useScopedBindings({
-		when: globalLayerActive,
-		bindings: {
-			"/": "filter.open",
-			r: "pull.refresh",
-			t: "theme.open",
-			d: "diff.open",
-			l: "pull.labels",
-			m: "pull.merge",
-			"shift+m": "pull.merge",
-			x: "pull.close",
-			o: "pull.open-browser",
-			s: "pull.toggle-draft",
-			"shift+s": "pull.toggle-draft",
-			y: "pull.copy-metadata",
-			return: "detail.open",
-		},
-	})
-
-	useScopedBindings({
 		when: true,
 		bindings: {
 			"ctrl+p": "command.open",
@@ -1931,22 +1912,10 @@ export const App = () => {
 	useScopedBindings({
 		when: diffFullView && !diffCommentMode,
 		bindings: {
+			...scrollBindings(scrollDiffBy, halfPage, scrollDiffTo),
 			escape: "diff.close",
 			return: "diff.close",
 			c: "diff.comment-mode",
-			home: () => scrollDiffTo(0),
-			end: () => scrollDiffTo(Number.MAX_SAFE_INTEGER),
-			pageup: () => scrollDiffBy(-halfPage),
-			pagedown: () => scrollDiffBy(halfPage),
-			"g g": () => scrollDiffTo(0),
-			"shift+g": () => scrollDiffTo(Number.MAX_SAFE_INTEGER),
-			up: () => scrollDiffBy(-1),
-			k: () => scrollDiffBy(-1),
-			down: () => scrollDiffBy(1),
-			j: () => scrollDiffBy(1),
-			"ctrl+u": () => scrollDiffBy(-halfPage),
-			"ctrl+d": () => scrollDiffBy(halfPage),
-			"ctrl+v": () => scrollDiffBy(halfPage),
 			v: "diff.toggle-view",
 			w: "diff.toggle-wrap",
 			r: "diff.reload",
@@ -2007,6 +1976,7 @@ export const App = () => {
 	useScopedBindings({
 		when: detailFullView,
 		bindings: {
+			...scrollBindings(scrollDetailFullViewBy, halfPage, scrollDetailFullViewTo),
 			escape: "detail.close",
 			return: "detail.close",
 			t: "theme.open",
@@ -2018,19 +1988,6 @@ export const App = () => {
 			s: "pull.toggle-draft",
 			"shift+s": "pull.toggle-draft",
 			r: "pull.refresh",
-			home: () => scrollDetailFullViewTo(0),
-			end: () => scrollDetailFullViewTo(Number.MAX_SAFE_INTEGER),
-			pageup: () => scrollDetailFullViewBy(-halfPage),
-			pagedown: () => scrollDetailFullViewBy(halfPage),
-			"g g": () => scrollDetailFullViewTo(0),
-			"shift+g": () => scrollDetailFullViewTo(Number.MAX_SAFE_INTEGER),
-			up: () => scrollDetailFullViewBy(-1),
-			k: () => scrollDetailFullViewBy(-1),
-			down: () => scrollDetailFullViewBy(1),
-			j: () => scrollDetailFullViewBy(1),
-			"ctrl+u": () => scrollDetailFullViewBy(-halfPage),
-			"ctrl+d": () => scrollDetailFullViewBy(halfPage),
-			"ctrl+v": () => scrollDetailFullViewBy(halfPage),
 			o: "pull.open-browser",
 			y: "pull.copy-metadata",
 		},
@@ -2069,6 +2026,19 @@ export const App = () => {
 	useScopedBindings({
 		when: globalLayerActive,
 		bindings: {
+			"/": "filter.open",
+			r: "pull.refresh",
+			t: "theme.open",
+			d: "diff.open",
+			l: "pull.labels",
+			m: "pull.merge",
+			"shift+m": "pull.merge",
+			x: "pull.close",
+			o: "pull.open-browser",
+			s: "pull.toggle-draft",
+			"shift+s": "pull.toggle-draft",
+			y: "pull.copy-metadata",
+			return: "detail.open",
 			tab: () => switchQueueMode(1),
 			"shift+tab": () => switchQueueMode(-1),
 			escape: () => { if (filterQuery.length > 0) runCommandByIdRef.current("filter.clear") },
