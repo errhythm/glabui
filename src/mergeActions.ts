@@ -61,12 +61,7 @@ const mergeActionDefinitions = {
 	},
 } as const satisfies Record<PullRequestMergeAction, MergeActionDefinition>
 
-export const mergeActions = [
-	mergeActionDefinitions.squash,
-	mergeActionDefinitions.auto,
-	mergeActionDefinitions["disable-auto"],
-	mergeActionDefinitions.admin,
-] as const satisfies readonly MergeActionDefinition[]
+export const mergeActions: readonly MergeActionDefinition[] = Object.values(mergeActionDefinitions)
 
 export const availableMergeActions = (info: PullRequestMergeInfo | null): readonly MergeActionDefinition[] => {
 	if (!info) return []
