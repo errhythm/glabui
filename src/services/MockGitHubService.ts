@@ -81,21 +81,20 @@ export const MockGitHubService = {
 			additions: 0,
 			deletions: 0,
 			changedFiles: 0,
-			checkStatus: "none" as const,
-			checkSummary: null,
-			checks: [],
 			detailLoaded: false,
 		} satisfies PullRequestItem))
 		const filterByView = (mode: PullRequestQueueMode, repository: string | null, source: readonly PullRequestItem[]) => {
 			if (mode === "repository") return repository ? source.filter((item) => item.repository === repository) : []
 			return source
 		}
+		const findPullRequest = (repository: string, number: number) => items.find((item) => item.repository === repository && item.number === number) ?? items[0]!
 
 		return Layer.succeed(
 			GitHubService,
 			GitHubService.of({
 				listOpenPullRequests: (mode: PullRequestQueueMode, repository: string | null) => Effect.succeed(filterByView(mode, repository, summaryItems)),
 				listOpenPullRequestDetails: (mode: PullRequestQueueMode, repository: string | null) => Effect.succeed(filterByView(mode, repository, items)),
+				getPullRequestDetails: (repository, number) => Effect.succeed(findPullRequest(repository, number)),
 				getAuthenticatedUser: () => Effect.succeed(username),
 				getPullRequestDiff: (_repo, _number) => Effect.succeed(""),
 				listPullRequestComments: (_repo, _number) => Effect.succeed([] as readonly PullRequestReviewComment[]),

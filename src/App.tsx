@@ -5,13 +5,17 @@ import { Cause, Effect, Layer, Schedule } from "effect"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 import * as Atom from "effect/unstable/reactivity/Atom"
 import { useContext, useEffect, useMemo, useRef, useState } from "react"
+import { buildAppCommands } from "./appCommands.js"
 import type { AppCommand } from "./commands.js"
-import { clampCommandIndex, commandEnabled, defineCommand, filterCommands } from "./commands.js"
+import { clampCommandIndex, commandEnabled, filterCommands } from "./commands.js"
 import { config } from "./config.js"
-import { pullRequestQueueLabels, pullRequestQueueModes, type CreatePullRequestCommentInput, type DiffCommentSide, type LoadStatus, type PullRequestItem, type PullRequestLabel, type PullRequestMergeAction, type PullRequestQueueMode, type PullRequestReviewComment, type PullRequestUserQueueMode } from "./domain.js"
+import { type CreatePullRequestCommentInput, type DiffCommentSide, type LoadStatus, type PullRequestItem, type PullRequestLabel, type PullRequestMergeAction, type PullRequestReviewComment } from "./domain.js"
 import { formatShortDate, formatTimestamp } from "./date.js"
+import { errorMessage } from "./errors.js"
 import { availableMergeActions, mergeInfoFromPullRequest } from "./mergeActions.js"
 import { Observability } from "./observability.js"
+import { mergeCachedDetails } from "./pullRequestCache.js"
+import { activePullRequestViews, initialPullRequestView, nextView, parseRepositoryInput, type PullRequestView, viewCacheKey, viewEquals, viewLabel, viewMode, viewRepository } from "./pullRequestViews.js"
 import { BrowserOpener } from "./services/BrowserOpener.js"
 import { Clipboard } from "./services/Clipboard.js"
 import { CommandRunner } from "./services/CommandRunner.js"
@@ -19,7 +23,7 @@ import { GitHubService } from "./services/GitHubService.js"
 import { loadStoredThemeId, saveStoredThemeId } from "./themeStore.js"
 import { colors, filterThemeDefinitions, mixHex, setActiveTheme, themeDefinitions, type ThemeId } from "./ui/colors.js"
 import { backspace as editorBackspace, deleteForward as editorDeleteForward, deleteToLineEnd, deleteToLineStart, deleteWordBackward, deleteWordForward, insertText, moveLeft as editorMoveLeft, moveLineEnd, moveLineStart, moveRight as editorMoveRight, moveVertically, moveWordBackward, moveWordForward, type CommentEditorValue } from "./ui/commentEditor.js"
-import { buildStackedDiffFiles, diffCommentAnchorKey, diffCommentLocationKey, getStackedDiffCommentAnchors, nearestDiffCommentAnchorIndex, PullRequestDiffState, pullRequestDiffKey, safeDiffFileIndex, scrollTopForVisibleLine, splitPatchFiles, stackedDiffFileAtLine, type DiffCommentAnchor, type DiffView, type DiffWrapMode, type StackedDiffCommentAnchor } from "./ui/diff.js"
+import { buildStackedDiffFiles, diffCommentLocationKey, getStackedDiffCommentAnchors, nearestDiffCommentAnchorIndex, PullRequestDiffState, pullRequestDiffKey, safeDiffFileIndex, scrollTopForVisibleLine, splitPatchFiles, stackedDiffFileAtLine, type DiffCommentAnchor, type DiffView, type DiffWrapMode, type StackedDiffCommentAnchor } from "./ui/diff.js"
 import { DETAIL_BODY_SCROLL_LIMIT, DetailBody, DetailHeader, DetailPlaceholder, DetailsPane, getDetailHeaderHeight, getDetailJunctionRows, getDetailsPaneHeight, getScrollableDetailBodyHeight, LoadingPane, type DetailPlaceholderContent } from "./ui/DetailsPane.js"
 import { FooterHints, initialRetryProgress, RetryProgress } from "./ui/FooterHints.js"
 import { Divider, fitCell, PlainLine, SeparatorColumn } from "./ui/primitives.js"
@@ -49,37 +53,10 @@ const githubRuntime = Atom.runtime(
 )
 const initialThemeId = await Effect.runPromise(loadStoredThemeId)
 
-type PullRequestView =
-	| { readonly _tag: "Repository"; readonly repository: string }
-	| { readonly _tag: "Queue"; readonly mode: PullRequestUserQueueMode; readonly repository: string | null }
-
-const initialPullRequestView: PullRequestView = config.repository
-	? { _tag: "Repository", repository: config.repository }
-	: { _tag: "Queue", mode: "authored", repository: null }
-
-const viewMode = (view: PullRequestView): PullRequestQueueMode => view._tag === "Repository" ? "repository" : view.mode
-
-const viewRepository = (view: PullRequestView) => view.repository
-
-const viewCacheKey = (view: PullRequestView) => view._tag === "Repository" ? `repository:${view.repository}` : view.mode
-
-const viewEquals = (left: PullRequestView, right: PullRequestView) =>
-	left._tag === right._tag && viewMode(left) === viewMode(right) && left.repository === right.repository
-
-const activePullRequestViews = (view: PullRequestView): readonly PullRequestView[] => {
-	const repository = viewRepository(view)
-	return [
-		...(repository ? [{ _tag: "Repository" as const, repository }] : []),
-		...pullRequestQueueModes.map((mode) => ({ _tag: "Queue" as const, mode, repository })),
-	]
-}
-
-
 interface PullRequestLoad {
 	readonly view: PullRequestView
 	readonly data: readonly PullRequestItem[]
 	readonly fetchedAt: Date | null
-	readonly detailsFetchedAt: Date | null
 }
 
 interface DetailPlaceholderInput {
@@ -122,29 +99,8 @@ const DIFF_STICKY_HEADER_LINES = 2
 const LOADING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const
 const MAX_REPOSITORY_CACHE_ENTRIES = 8
 
-const mergeCachedDetails = (fresh: readonly PullRequestItem[], cached: readonly PullRequestItem[] | undefined) => {
-	if (!cached) return fresh
-	const cachedByUrl = new Map(cached.map((pullRequest) => [pullRequest.url, pullRequest]))
-	return fresh.map((pullRequest) => {
-		const cachedPullRequest = cachedByUrl.get(pullRequest.url)
-		if (!cachedPullRequest?.detailLoaded) return pullRequest
-		return {
-			...pullRequest,
-			body: cachedPullRequest.body,
-			labels: cachedPullRequest.labels,
-			additions: cachedPullRequest.additions,
-			deletions: cachedPullRequest.deletions,
-			changedFiles: cachedPullRequest.changedFiles,
-			checkStatus: cachedPullRequest.checkStatus,
-			checkSummary: cachedPullRequest.checkSummary,
-			checks: cachedPullRequest.checks,
-			detailLoaded: true,
-		} satisfies PullRequestItem
-	})
-}
-
 const retryProgressAtom = Atom.make<RetryProgress>(initialRetryProgress).pipe(Atom.keepAlive)
-const activeViewAtom = Atom.make<PullRequestView>(initialPullRequestView).pipe(Atom.keepAlive)
+const activeViewAtom = Atom.make<PullRequestView>(initialPullRequestView(config.repository)).pipe(Atom.keepAlive)
 const queueLoadCacheAtom = Atom.make<Partial<Record<string, PullRequestLoad>>>({}).pipe(Atom.keepAlive)
 const queueSelectionAtom = Atom.make<Partial<Record<string, number>>>({}).pipe(Atom.keepAlive)
 const trimQueueLoadCache = (cache: Partial<Record<string, PullRequestLoad>>) => {
@@ -178,7 +134,6 @@ const pullRequestsAtom = githubRuntime.atom(
 				view,
 				data: mergeCachedDetails(data, cache[cacheKey]?.data),
 				fetchedAt: new Date(),
-				detailsFetchedAt: null,
 			} satisfies PullRequestLoad
 			const nextCache = { ...cache }
 			delete nextCache[cacheKey]
@@ -315,8 +270,8 @@ const selectedDiffStateAtom = Atom.make((get) => {
 const listRepoLabelsAtom = githubRuntime.fn<string>()((repository) =>
 	GitHubService.use((github) => github.listRepoLabels(repository))
 )
-const listOpenPullRequestDetailsAtom = githubRuntime.fn<PullRequestView>()((view) =>
-	GitHubService.use((github) => github.listOpenPullRequestDetails(viewMode(view), viewRepository(view)))
+const getPullRequestDetailsAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
+	GitHubService.use((github) => github.getPullRequestDetails(input.repository, input.number))
 )
 const addPullRequestLabelAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly label: string }>()((input) =>
 	GitHubService.use((github) => github.addPullRequestLabel(input.repository, input.number, input.label))
@@ -348,7 +303,6 @@ const openInBrowserAtom = githubRuntime.fn<PullRequestItem>()((pullRequest) => B
 
 const centeredOffset = (outer: number, inner: number) => Math.floor((outer - inner) / 2)
 
-const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 const pasteText = (event: PasteEvent) => new TextDecoder().decode(event.bytes)
 
@@ -382,25 +336,6 @@ const pullRequestMetadataText = (pullRequest: PullRequestItem) => {
 const isShiftG = (key: { readonly name: string; readonly shift?: boolean }) => key.name === "G" || key.name === "g" && key.shift
 
 const isThemeKey = (key: { readonly name: string; readonly ctrl?: boolean; readonly meta?: boolean }) => !key.ctrl && !key.meta && key.name.toLowerCase() === "t"
-
-const nextView = (view: PullRequestView, views: readonly PullRequestView[], delta: 1 | -1) => {
-	const index = Math.max(0, views.findIndex((candidate) => viewEquals(candidate, view)))
-	return views[(index + delta + views.length) % views.length]!
-}
-
-const viewLabel = (view: PullRequestView) => view._tag === "Repository" ? view.repository : pullRequestQueueLabels[view.mode]
-
-const parseRepositoryInput = (input: string) => {
-	const trimmed = input.trim()
-	const urlMatch = trimmed.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+)\/([^/\s?#]+)(?:[/?#].*)?$/i)
-	const shorthandMatch = trimmed.match(/^([^/\s]+)\/([^/\s]+)$/)
-	const match = urlMatch ?? shorthandMatch
-	if (!match) return null
-	const owner = match[1]!
-	const repo = match[2]!.replace(/\.git$/i, "")
-	if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) return null
-	return `${owner}/${repo}`
-}
 
 const diffCommentThreadKey = (pullRequest: PullRequestItem, comment: Pick<PullRequestReviewComment, "path" | "side" | "line">) =>
 	`${pullRequestDiffKey(pullRequest)}:${diffCommentLocationKey(comment)}`
@@ -507,7 +442,7 @@ export const App = () => {
 	const [filterMode, setFilterMode] = useAtom(filterModeAtom)
 	const [pendingG, setPendingG] = useAtom(pendingGAtom)
 	const [detailFullView, setDetailFullView] = useAtom(detailFullViewAtom)
-	const [_detailScrollOffset, setDetailScrollOffset] = useAtom(detailScrollOffsetAtom)
+	const setDetailScrollOffset = useAtomSet(detailScrollOffsetAtom)
 	const [diffFullView, setDiffFullView] = useAtom(diffFullViewAtom)
 	const [diffFileIndex, setDiffFileIndex] = useAtom(diffFileIndexAtom)
 	const [diffScrollTop, setDiffScrollTop] = useAtom(diffScrollTopAtom)
@@ -570,7 +505,7 @@ export const App = () => {
 	const [terminalFocused, setTerminalFocused] = useState(true)
 	const usernameResult = useAtomValue(usernameAtom)
 	const loadRepoLabels = useAtomSet(listRepoLabelsAtom, { mode: "promise" })
-	const loadPullRequestDetails = useAtomSet(listOpenPullRequestDetailsAtom, { mode: "promise" })
+	const loadPullRequestDetails = useAtomSet(getPullRequestDetailsAtom, { mode: "promise" })
 	const addPullRequestLabel = useAtomSet(addPullRequestLabelAtom, { mode: "promise" })
 	const removePullRequestLabel = useAtomSet(removePullRequestLabelAtom, { mode: "promise" })
 	const toggleDraftStatus = useAtomSet(toggleDraftAtom, { mode: "promise" })
@@ -598,7 +533,7 @@ export const App = () => {
 	const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const pendingGTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const diffPrefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const detailHydrationRef = useRef<number | null>(null)
+	const detailHydrationRef = useRef<string | null>(null)
 	const refreshGenerationRef = useRef(0)
 	const didMountQueueModeRef = useRef(false)
 	const lastPullRequestRefreshAtRef = useRef(0)
@@ -676,7 +611,7 @@ export const App = () => {
 		[diffFullView, stackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth],
 	)
 	const selectedDiffCommentAnchor = diffCommentAnchors[Math.max(0, Math.min(diffCommentAnchorIndex, diffCommentAnchors.length - 1))] ?? null
-	const selectedDiffCommentThreadKey = selectedDiffKey && selectedDiffCommentAnchor ? `${selectedDiffKey}:${diffCommentAnchorKey(selectedDiffCommentAnchor)}` : null
+	const selectedDiffCommentThreadKey = selectedDiffKey && selectedDiffCommentAnchor ? `${selectedDiffKey}:${diffCommentLocationKey(selectedDiffCommentAnchor)}` : null
 	const selectedDiffCommentThread = selectedDiffCommentThreadKey ? diffCommentThreads[selectedDiffCommentThreadKey] ?? [] : []
 	const diffLineColorContextKey = selectedDiffKey ? `${selectedDiffKey}:${effectiveDiffRenderView}:${diffWrapMode}` : null
 	const diffCommentRows = useMemo(
@@ -712,6 +647,7 @@ export const App = () => {
 	}
 	const refreshPullRequests = (message?: string) => {
 		refreshGenerationRef.current += 1
+		detailHydrationRef.current = null
 		setPullRequestOverrides({})
 		if (message) {
 			setNotice(null)
@@ -766,7 +702,7 @@ export const App = () => {
 	useEffect(() => {
 		if (!refreshCompletionMessage || refreshStartedAt === null) return
 		const fetchedAt = pullRequestLoad?.fetchedAt?.getTime()
-		const isHydratingDetails = pullRequestStatus === "ready" && pullRequests.some((pullRequest) => pullRequest.state === "open" && !pullRequest.detailLoaded)
+		const isHydratingDetails = pullRequestStatus === "ready" && selectedPullRequest?.state === "open" && !selectedPullRequest.detailLoaded
 		if (pullRequestStatus === "ready" && fetchedAt !== undefined && fetchedAt !== refreshStartedAt && !isHydratingDetails) {
 			flashNotice(`✓ ${refreshCompletionMessage}`)
 			setRefreshCompletionMessage(null)
@@ -875,7 +811,7 @@ export const App = () => {
 
 		if (selectedDiffKey) {
 			for (const anchor of diffCommentAnchors) {
-				if ((diffCommentThreads[`${selectedDiffKey}:${diffCommentAnchorKey(anchor)}`]?.length ?? 0) > 0) {
+				if ((diffCommentThreads[`${selectedDiffKey}:${diffCommentLocationKey(anchor)}`]?.length ?? 0) > 0) {
 					applyLineColor(anchor, diffCommentGutterColor(anchor, "thread"))
 				}
 			}
@@ -892,7 +828,7 @@ export const App = () => {
 		}
 		diffCommentLineColorsRef.current = { contextKey: diffLineColorContextKey, entries: nextEntries }
 	}, [diffCommentMode, selectedDiffCommentAnchor?.renderLine, selectedDiffCommentAnchor?.localRenderLine, selectedDiffCommentAnchor?.side, selectedDiffCommentAnchor?.fileIndex, diffLineColorContextKey, effectiveDiffRenderView, diffCommentAnchors, diffCommentThreads])
-	const isHydratingPullRequestDetails = pullRequestStatus === "ready" && pullRequests.some((pullRequest) => pullRequest.state === "open" && !pullRequest.detailLoaded)
+	const isHydratingPullRequestDetails = pullRequestStatus === "ready" && selectedPullRequest?.state === "open" && !selectedPullRequest.detailLoaded
 	const isRefreshingPullRequests = pullRequestResult.waiting && pullRequestLoad !== null
 	const hasActiveLoadingIndicator = pullRequestResult.waiting || isHydratingPullRequestDetails || labelModal.loading || closeModal.running || mergeModal.loading || mergeModal.running || selectedDiffState?._tag === "Loading"
 	const loadingIndicator = LOADING_FRAMES[loadingFrame % LOADING_FRAMES.length]!
@@ -906,31 +842,32 @@ export const App = () => {
 	}, [hasActiveLoadingIndicator])
 
 	useEffect(() => {
-		const fetchedAt = pullRequestLoad?.fetchedAt?.getTime()
-		if (pullRequestStatus !== "ready" || fetchedAt === undefined) return
-		if (detailHydrationRef.current === fetchedAt || pullRequestLoad?.detailsFetchedAt?.getTime() === fetchedAt) return
-		if (!pullRequests.some((pullRequest) => pullRequest.state === "open" && !pullRequest.detailLoaded)) return
-		detailHydrationRef.current = fetchedAt
+		if (pullRequestStatus !== "ready" || !selectedPullRequest || selectedPullRequest.state !== "open" || selectedPullRequest.detailLoaded) return
+		const detailKey = `${selectedPullRequest.url}:${selectedPullRequest.headRefOid}`
+		if (detailHydrationRef.current === detailKey) return
+		detailHydrationRef.current = detailKey
 		const generation = refreshGenerationRef.current
-		void loadPullRequestDetails(activeView).then((details) => {
+		void loadPullRequestDetails({ repository: selectedPullRequest.repository, number: selectedPullRequest.number }).then((detail) => {
 			if (generation !== refreshGenerationRef.current) return
 			setQueueLoadCache((current) => {
-				const load = current[currentQueueCacheKey]
-				if (!load) return current
-				const detailsByUrl = new Map(details.map((detail) => [detail.url, detail]))
-				return {
-					...current,
-					[currentQueueCacheKey]: {
+				const next = { ...current }
+				let changed = false
+				for (const [cacheKey, load] of Object.entries(current)) {
+					if (!load || !load.data.some((pullRequest) => pullRequest.url === detail.url)) continue
+					changed = true
+					next[cacheKey] = {
 						...load,
-						data: load.data.map((pullRequest) => detailsByUrl.get(pullRequest.url) ?? pullRequest),
-						detailsFetchedAt: load.fetchedAt,
-					},
+						data: load.data.map((pullRequest) => pullRequest.url === detail.url ? detail : pullRequest),
+					}
 				}
+				return changed ? next : current
 			})
+			if (detailHydrationRef.current === detailKey) detailHydrationRef.current = null
 		}).catch((error) => {
+			if (detailHydrationRef.current === detailKey) detailHydrationRef.current = null
 			flashNotice(errorMessage(error))
 		})
-	}, [activeView, currentQueueCacheKey, pullRequestStatus, pullRequestLoad?.fetchedAt, pullRequests.length])
+	}, [loadPullRequestDetails, pullRequestStatus, selectedPullRequest?.url, selectedPullRequest?.headRefOid, selectedPullRequest?.state, selectedPullRequest?.detailLoaded, selectedPullRequest?.repository, selectedPullRequest?.number])
 
 	const detailPlaceholderContent = getDetailPlaceholderContent({
 		status: pullRequestStatus,
@@ -1565,272 +1502,75 @@ export const App = () => {
 		}
 	}, [renderer, commandPaletteActive, openRepositoryModalActive, themeModalActive, themeModal.filterMode, commentModalActive, labelModalActive, filterMode])
 
-	const selectedPullRequestLabel = selectedPullRequest ? `#${selectedPullRequest.number} ${selectedPullRequest.repository}` : "No pull request selected"
-	const noPullRequestReason = selectedPullRequest ? null : "Select a pull request first."
-	const noOpenPullRequestReason = selectedPullRequest?.state === "open" ? null : selectedPullRequest ? "Pull request is not open." : noPullRequestReason
-	const diffReadyReason = selectedPullRequest
-		? selectedDiffState?._tag === "Ready" ? null : "Load the diff before running this command."
-		: noPullRequestReason
-	const diffOpenReadyReason = diffFullView ? diffReadyReason : "Open a diff first."
-	const appCommands: readonly AppCommand[] = [
-		defineCommand({
-			id: "command.open",
-			title: "Open command palette",
-			scope: "Global",
-			subtitle: "Search every available route through ghui",
-			shortcut: "ctrl-p/cmd-k",
-			keywords: ["palette", "commands", "deck"],
-			run: openCommandPalette,
-		}),
-		defineCommand({
-			id: "pull.refresh",
-			title: pullRequestStatus === "error" ? "Retry loading pull requests" : "Refresh pull requests",
-			scope: "Global",
-			subtitle: "Fetch the latest queue from GitHub",
-			shortcut: "r",
-			keywords: ["reload", "sync"],
-			run: () => refreshPullRequests("Refreshed"),
-		}),
-		defineCommand({
-			id: "filter.open",
-			title: "Filter pull requests",
-			scope: "Global",
-			subtitle: "Search the visible queue",
-			shortcut: "/",
-			keywords: ["search"],
-			run: () => {
+	const appCommands: readonly AppCommand[] = buildAppCommands({
+		pullRequestStatus,
+		filterQuery,
+		filterMode,
+		selectedRepository,
+		activeViews,
+		activeView,
+		selectedPullRequest,
+		detailFullView,
+		diffFullView,
+		diffReady: selectedDiffState?._tag === "Ready",
+		effectiveDiffRenderView,
+		diffWrapMode,
+		readyDiffFileCount: readyDiffFiles.length,
+		diffFileIndex,
+		diffCommentMode,
+		selectedDiffCommentAnchorLabel: selectedDiffCommentAnchor ? `${selectedDiffCommentAnchor.path}:${selectedDiffCommentAnchor.line}` : null,
+		actions: {
+			openCommandPalette,
+			refreshPullRequests,
+			openFilter: () => {
 				setFilterDraft(filterQuery)
 				setFilterMode(true)
 			},
-		}),
-		defineCommand({
-			id: "filter.clear",
-			title: "Clear pull request filter",
-			scope: "Global",
-			subtitle: "Show every pull request in the current queue",
-			shortcut: "esc",
-			disabledReason: filterQuery.length > 0 || filterMode ? null : "No filter is active.",
-			run: () => {
+			clearFilter: () => {
 				setFilterQuery("")
 				setFilterDraft("")
 				setFilterMode(false)
 			},
-		}),
-		defineCommand({
-			id: "theme.open",
-			title: "Choose theme",
-			scope: "Global",
-			subtitle: "Preview and persist a terminal color theme",
-			shortcut: "t",
-			keywords: ["colors", "appearance"],
-			run: openThemeModal,
-		}),
-		defineCommand({
-			id: "repository.open",
-			title: "Open repository...",
-			scope: "View",
-			subtitle: selectedRepository ? `Current repository: ${selectedRepository}` : "Enter owner/name or a GitHub URL",
-			keywords: ["repo", "repository", "owner", "github"],
-			run: openRepositoryPicker,
-		}),
-		...activeViews.map((view) => defineCommand({
-			id: view._tag === "Repository" ? "view.repository" : `view.${view.mode}`,
-			title: `Show ${viewLabel(view)} view`,
-			scope: "View" as const,
-			subtitle: viewEquals(view, activeView) ? "Already showing this view" : "Switch pull request view",
-			keywords: [viewMode(view), viewLabel(view), "queue", "view"],
-			disabledReason: viewEquals(view, activeView) ? "Already showing this view." : null,
-			run: () => switchViewTo(view),
-		})),
-		defineCommand({
-			id: "detail.open",
-			title: "Open pull request details",
-			scope: "Pull request",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "enter",
-			disabledReason: noPullRequestReason,
-			run: () => {
+			openThemeModal,
+			openRepositoryPicker,
+			switchViewTo,
+			openDetails: () => {
 				setDetailFullView(true)
 				setDetailScrollOffset(0)
 			},
-		}),
-		defineCommand({
-			id: "detail.close",
-			title: "Close details view",
-			scope: "Pull request",
-			subtitle: "Return to the queue",
-			shortcut: "esc",
-			disabledReason: detailFullView ? null : "Details view is not open.",
-			run: () => {
+			closeDetails: () => {
 				setDetailFullView(false)
 				setDetailScrollOffset(0)
 			},
-		}),
-		defineCommand({
-			id: "diff.open",
-			title: "Open stacked diff",
-			scope: "Diff",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "d",
-			disabledReason: noPullRequestReason,
-			keywords: ["files", "patch"],
-			run: openDiffView,
-		}),
-		defineCommand({
-			id: "diff.close",
-			title: "Close diff view",
-			scope: "Diff",
-			subtitle: "Return to the queue or detail view",
-			shortcut: "esc",
-			disabledReason: diffFullView ? null : "Diff view is not open.",
-			run: () => {
+			openDiffView,
+			closeDiffView: () => {
 				setDiffFullView(false)
 				setDiffCommentMode(false)
 			},
-		}),
-		defineCommand({
-			id: "diff.reload",
-			title: "Reload diff",
-			scope: "Diff",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "r",
-			disabledReason: diffFullView && selectedPullRequest ? null : "Open a pull request diff first.",
-			keywords: ["refresh", "comments"],
-			run: () => {
+			reloadDiff: () => {
 				if (!selectedPullRequest) return
 				loadPullRequestDiff(selectedPullRequest, { force: true, includeComments: true })
 				flashNotice(`Refreshing diff for #${selectedPullRequest.number}`)
 			},
-		}),
-		defineCommand({
-			id: "diff.toggle-view",
-			title: "Toggle diff split/unified view",
-			scope: "Diff",
-			subtitle: effectiveDiffRenderView === "split" ? "Switch to unified view" : "Switch to split view",
-			shortcut: "v",
-			disabledReason: diffFullView ? null : "Open a diff first.",
-			run: () => setDiffRenderView((current) => current === "unified" ? "split" : "unified"),
-		}),
-		defineCommand({
-			id: "diff.toggle-wrap",
-			title: "Toggle diff word wrap",
-			scope: "Diff",
-			subtitle: diffWrapMode === "none" ? "Wrap long diff lines" : "Keep diff lines unwrapped",
-			shortcut: "w",
-			disabledReason: diffFullView ? null : "Open a diff first.",
-			run: () => setDiffWrapMode((current) => current === "none" ? "word" : "none"),
-		}),
-		defineCommand({
-			id: "diff.next-file",
-			title: "Next diff file",
-			scope: "Diff",
-			subtitle: readyDiffFiles.length > 0 ? `${diffFileIndex + 1}/${readyDiffFiles.length}` : "No diff files loaded",
-			shortcut: "]",
-			disabledReason: diffFullView && readyDiffFiles.length > 0 ? null : diffOpenReadyReason,
-			run: () => jumpDiffFile(1),
-		}),
-		defineCommand({
-			id: "diff.previous-file",
-			title: "Previous diff file",
-			scope: "Diff",
-			subtitle: readyDiffFiles.length > 0 ? `${diffFileIndex + 1}/${readyDiffFiles.length}` : "No diff files loaded",
-			shortcut: "[",
-			disabledReason: diffFullView && readyDiffFiles.length > 0 ? null : diffOpenReadyReason,
-			run: () => jumpDiffFile(-1),
-		}),
-		defineCommand({
-			id: "diff.comment-mode",
-			title: diffCommentMode ? "Exit diff comment mode" : "Enter diff comment mode",
-			scope: "Diff",
-			subtitle: diffCommentMode ? "Return to diff scrolling" : "Choose a line to comment on",
-			shortcut: "c",
-			disabledReason: diffFullView && selectedDiffState?._tag === "Ready" ? null : diffOpenReadyReason,
-			keywords: ["review", "comment", "line"],
-			run: () => {
+			toggleDiffRenderView: () => setDiffRenderView((current) => current === "unified" ? "split" : "unified"),
+			toggleDiffWrapMode: () => setDiffWrapMode((current) => current === "none" ? "word" : "none"),
+			jumpDiffFile,
+			toggleDiffCommentMode: () => {
 				if (diffCommentMode) setDiffCommentMode(false)
 				else enterDiffCommentMode()
 			},
-		}),
-		defineCommand({
-			id: "diff.add-comment",
-			title: "Add comment on selected diff line",
-			scope: "Diff",
-			subtitle: selectedDiffCommentAnchor ? `${selectedDiffCommentAnchor.path}:${selectedDiffCommentAnchor.line}` : "No diff line selected",
-			shortcut: "a",
-			disabledReason: diffCommentMode && selectedDiffCommentAnchor ? null : "Enter diff comment mode and select a line first.",
-			keywords: ["review", "reply"],
-			run: openDiffCommentModal,
-		}),
-		defineCommand({
-			id: "pull.toggle-draft",
-			title: selectedPullRequest?.reviewStatus === "draft" ? "Mark ready for review" : "Mark as draft",
-			scope: "Pull request",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "s",
-			disabledReason: noPullRequestReason,
-			keywords: ["state", "ready"],
-			run: toggleSelectedPullRequestDraftStatus,
-		}),
-		defineCommand({
-			id: "pull.labels",
-			title: "Manage labels",
-			scope: "Pull request",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "l",
-			disabledReason: noPullRequestReason,
-			run: openLabelModal,
-		}),
-		defineCommand({
-			id: "pull.merge",
-			title: "Merge pull request",
-			scope: "Pull request",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "m",
-			disabledReason: noPullRequestReason,
-			keywords: ["auto merge", "squash"],
-			run: openMergeModal,
-		}),
-		defineCommand({
-			id: "pull.close",
-			title: "Close pull request",
-			scope: "Pull request",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "x",
-			disabledReason: noOpenPullRequestReason,
-			run: openCloseModal,
-		}),
-		defineCommand({
-			id: "pull.open-browser",
-			title: "Open pull request in browser",
-			scope: "Pull request",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "o",
-			disabledReason: noPullRequestReason,
-			keywords: ["github", "web"],
-			run: () => {
+			openDiffCommentModal,
+			togglePullRequestDraftStatus: toggleSelectedPullRequestDraftStatus,
+			openLabelModal,
+			openMergeModal,
+			openCloseModal,
+			openPullRequestInBrowser: () => {
 				if (selectedPullRequest) openSelectedPullRequestInBrowser(selectedPullRequest)
 			},
-		}),
-		defineCommand({
-			id: "pull.copy-metadata",
-			title: "Copy pull request metadata",
-			scope: "Pull request",
-			subtitle: selectedPullRequestLabel,
-			shortcut: "y",
-			disabledReason: noPullRequestReason,
-			keywords: ["clipboard", "url", "title"],
-			run: copySelectedPullRequestMetadata,
-		}),
-		defineCommand({
-			id: "app.quit",
-			title: "Quit ghui",
-			scope: "System",
-			subtitle: "Leave the terminal UI",
-			shortcut: "q",
-			keywords: ["exit"],
-			run: () => renderer.destroy(),
-		}),
-	]
+			copyPullRequestMetadata: copySelectedPullRequestMetadata,
+			quit: () => renderer.destroy(),
+		},
+	})
 	const runCommand = (command: AppCommand, options: { readonly notifyDisabled?: boolean; readonly closePalette?: boolean } = {}) => {
 		if (!commandEnabled(command)) {
 			if (options.notifyDisabled && command.disabledReason) flashNotice(command.disabledReason)

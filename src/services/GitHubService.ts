@@ -2,7 +2,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { config } from "../config.js"
 import { DiffCommentSide, pullRequestQueueSearchQualifier, type CheckItem, type CreatePullRequestCommentInput, type Mergeable, type PullRequestItem, type PullRequestMergeAction, type PullRequestMergeInfo, type PullRequestQueueMode, type PullRequestReviewComment, type ReviewStatus } from "../domain.js"
 import { getMergeActionDefinition } from "../mergeActions.js"
-import { CommandRunner, type CommandError, type JsonParseError } from "./CommandRunner.js"
+import { CommandError, CommandRunner, type JsonParseError } from "./CommandRunner.js"
 
 const NullableString = Schema.NullOr(Schema.String)
 const OptionalNullableString = Schema.optionalKey(NullableString)
@@ -29,6 +29,10 @@ const RawLabelSchema = Schema.Struct({
 	color: OptionalNullableString,
 })
 
+const RawStatusCheckRollupSchema = Schema.Struct({
+	contexts: Schema.Struct({ nodes: Schema.Array(RawCheckContextSchema) }),
+})
+
 const RawPullRequestSummaryFields = {
 	number: Schema.Number,
 	title: Schema.String,
@@ -45,7 +49,10 @@ const RawPullRequestSummaryFields = {
 	repository: RawRepositorySchema,
 } as const
 
-const RawPullRequestSummaryNodeSchema = Schema.Struct(RawPullRequestSummaryFields)
+const RawPullRequestSummaryNodeSchema = Schema.Struct({
+	...RawPullRequestSummaryFields,
+	statusCheckRollup: Schema.optionalKey(Schema.NullOr(RawStatusCheckRollupSchema)),
+})
 
 const RawPullRequestNodeSchema = Schema.Struct({
 	...RawPullRequestSummaryFields,
@@ -54,9 +61,15 @@ const RawPullRequestNodeSchema = Schema.Struct({
 	additions: Schema.Number,
 	deletions: Schema.Number,
 	changedFiles: Schema.Number,
-	statusCheckRollup: Schema.optionalKey(Schema.NullOr(Schema.Struct({
-		contexts: Schema.Struct({ nodes: Schema.Array(RawCheckContextSchema) }),
-	}))),
+	statusCheckRollup: Schema.optionalKey(Schema.NullOr(RawStatusCheckRollupSchema)),
+})
+
+const PullRequestDetailResponseSchema = Schema.Struct({
+	data: Schema.Struct({
+		repository: Schema.NullOr(Schema.Struct({
+			pullRequest: Schema.NullOr(RawPullRequestNodeSchema),
+		})),
+	}),
 })
 
 const PageInfoSchema = Schema.Struct({
@@ -182,6 +195,42 @@ query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
 }
 `
 
+const pullRequestDetailQuery = `
+query PullRequest($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number
+      title
+      body
+      isDraft
+      reviewDecision
+      autoMergeRequest { enabledAt }
+      additions
+      deletions
+      changedFiles
+      state
+      merged
+      createdAt
+      closedAt
+      url
+      author { login }
+      headRefOid
+      repository { nameWithOwner }
+      labels(first: 20) { nodes { name color } }
+      statusCheckRollup {
+        contexts(first: 100) {
+          nodes {
+            __typename
+            ... on CheckRun { name status conclusion }
+            ... on StatusContext { context state }
+          }
+        }
+      }
+    }
+  }
+}
+`
+
 const pullRequestSummarySearchQuery = `
 query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
   search(query: $searchQuery, type: ISSUE, first: $first, after: $after) {
@@ -200,6 +249,15 @@ query PullRequests($searchQuery: String!, $first: Int!, $after: String) {
         author { login }
         headRefOid
         repository { nameWithOwner }
+        statusCheckRollup {
+          contexts(first: 100) {
+            nodes {
+              __typename
+              ... on CheckRun { name status conclusion }
+              ... on StatusContext { context state }
+            }
+          }
+        }
       }
     }
     pageInfo { hasNextPage endCursor }
@@ -309,28 +367,31 @@ const getCheckInfoFromContexts = (contexts: readonly RawCheckContext[]): Pick<Pu
 	return { checkStatus: "passing", checkSummary: `checks ${successful}/${contexts.length}`, checks }
 }
 
-const parsePullRequestSummary = (item: RawPullRequestSummaryNode): PullRequestItem => ({
-	repository: item.repository.nameWithOwner,
-	author: item.author.login,
-	headRefOid: item.headRefOid,
-	number: item.number,
-	title: item.title,
-	body: "",
-	labels: [],
-	additions: 0,
-	deletions: 0,
-	changedFiles: 0,
-	state: getPullRequestState(item),
-	reviewStatus: getReviewStatus(item),
-	checkStatus: "none",
-	checkSummary: null,
-	checks: [],
-	autoMergeEnabled: item.autoMergeRequest !== null,
-	detailLoaded: false,
-	createdAt: new Date(item.createdAt),
-	closedAt: normalizeDate(item.closedAt),
-	url: item.url,
-})
+const parsePullRequestSummary = (item: RawPullRequestSummaryNode): PullRequestItem => {
+	const checkInfo = getCheckInfoFromContexts(item.statusCheckRollup?.contexts.nodes ?? [])
+	return {
+		repository: item.repository.nameWithOwner,
+		author: item.author.login,
+		headRefOid: item.headRefOid,
+		number: item.number,
+		title: item.title,
+		body: "",
+		labels: [],
+		additions: 0,
+		deletions: 0,
+		changedFiles: 0,
+		state: getPullRequestState(item),
+		reviewStatus: getReviewStatus(item),
+		checkStatus: checkInfo.checkStatus,
+		checkSummary: checkInfo.checkSummary,
+		checks: checkInfo.checks,
+		autoMergeEnabled: item.autoMergeRequest !== null,
+		detailLoaded: false,
+		createdAt: new Date(item.createdAt),
+		closedAt: normalizeDate(item.closedAt),
+		url: item.url,
+	}
+}
 
 const parsePullRequest = (item: RawPullRequestNode): PullRequestItem => {
 	const checkInfo = getCheckInfoFromContexts(item.statusCheckRollup?.contexts.nodes ?? [])
@@ -433,6 +494,7 @@ const normalizeMergeable = (value: string): Mergeable =>
 export class GitHubService extends Context.Service<GitHubService, {
 	readonly listOpenPullRequests: (mode: PullRequestQueueMode, repository: string | null) => Effect.Effect<readonly PullRequestItem[], GitHubError>
 	readonly listOpenPullRequestDetails: (mode: PullRequestQueueMode, repository: string | null) => Effect.Effect<readonly PullRequestItem[], GitHubError>
+	readonly getPullRequestDetails: (repository: string, number: number) => Effect.Effect<PullRequestItem, GitHubError>
 	readonly getAuthenticatedUser: () => Effect.Effect<string, GitHubError>
 	readonly getPullRequestDiff: (repository: string, number: number) => Effect.Effect<string, GitHubError>
 	readonly listPullRequestComments: (repository: string, number: number) => Effect.Effect<readonly PullRequestReviewComment[], GitHubError>
@@ -481,6 +543,26 @@ export class GitHubService extends Context.Service<GitHubService, {
 
 			const listOpenPullRequests = paginateSearch("listOpenPullRequests", pullRequestSummarySearchQuery, RawPullRequestSummaryNodeSchema, parsePullRequestSummary)
 			const listOpenPullRequestDetails = paginateSearch("listOpenPullRequestDetails", pullRequestSearchQuery, RawPullRequestNodeSchema, parsePullRequest)
+
+			const getPullRequestDetails = Effect.fn("GitHubService.getPullRequestDetails")(function*(repository: string, number: number) {
+				const [owner, name] = repository.split("/")
+				if (!owner || !name) {
+					return yield* new CommandError({ command: "gh", args: [], detail: `Invalid repository: ${repository}`, cause: repository })
+				}
+
+				const response = yield* command.runSchema(PullRequestDetailResponseSchema, "gh", [
+					"api", "graphql",
+					"-f", `query=${pullRequestDetailQuery}`,
+					"-F", `owner=${owner}`,
+					"-F", `name=${name}`,
+					"-F", `number=${number}`,
+				])
+				const pullRequest = response.data.repository?.pullRequest
+				if (!pullRequest) {
+					return yield* new CommandError({ command: "gh", args: [], detail: `Pull request not found: ${repository}#${number}`, cause: `${repository}#${number}` })
+				}
+				return parsePullRequest(pullRequest)
+			})
 
 			const getAuthenticatedUser = Effect.fn("GitHubService.getAuthenticatedUser")(function*() {
 				const viewer = yield* command.runSchema(ViewerSchema, "gh", ["api", "user"])
@@ -565,6 +647,7 @@ export class GitHubService extends Context.Service<GitHubService, {
 			return GitHubService.of({
 				listOpenPullRequests,
 				listOpenPullRequestDetails,
+				getPullRequestDetails,
 				getAuthenticatedUser,
 				getPullRequestDiff,
 				listPullRequestComments,
