@@ -1,7 +1,8 @@
 import type { DiffRenderable, PasteEvent, ScrollBoxRenderable } from "@opentui/core"
 import { RegistryContext, useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
-import { useAppCommandRegistry } from "./keyboard/useAppCommandRegistry.js"
-import { scrollBindings, useScopedBindings, type ScopedBindingAction } from "./keyboard/useScopedBindings.js"
+import { useKeymap } from "@ghui/keymap/react"
+import { appKeymap, type AppCtx } from "./keymap/all.js"
+import { useOpenTuiSubscribe } from "./keyboard/opentuiAdapter.js"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
 import { Cause, Effect, Layer, Schedule } from "effect"
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
@@ -120,24 +121,6 @@ const DETAIL_PREFETCH_BEHIND = 1
 const DETAIL_PREFETCH_AHEAD = 3
 const DETAIL_PREFETCH_CONCURRENCY = 3
 const DETAIL_PREFETCH_DELAY_MS = 120
-const MAX_KEYMAP_COUNT_PREFIX = 99
-
-const countSequence = (count: number, key: string) => `${String(count).split("").join(" ")} ${key}`
-
-const countedVerticalBindings = (
-	moveUp: (count: number) => void,
-	moveDown: (count: number) => void,
-): Record<string, ScopedBindingAction> => {
-	const bindings: Record<string, ScopedBindingAction> = {}
-	for (let count = 1; count <= MAX_KEYMAP_COUNT_PREFIX; count++) {
-		bindings[countSequence(count, "k")] = () => moveUp(count)
-		bindings[countSequence(count, "up")] = () => moveUp(count)
-		bindings[countSequence(count, "j")] = () => moveDown(count)
-		bindings[countSequence(count, "down")] = () => moveDown(count)
-	}
-	return bindings
-}
-
 const appendPullRequestPage = (existing: readonly PullRequestItem[], incoming: readonly PullRequestItem[]) => {
 	const seen = new Set(existing.map((pullRequest) => pullRequest.url))
 	const mergedIncoming = mergeCachedDetails(incoming, existing)
@@ -1874,7 +1857,6 @@ export const App = () => {
 	}
 	const runCommandByIdRef = useRef(runCommandById)
 	runCommandByIdRef.current = runCommandById
-	useAppCommandRegistry(appCommands, runCommandByIdRef)
 	const dynamicPaletteCommands: readonly AppCommand[] = (() => {
 		if (!commandPaletteActive) return []
 		const repository = parseRepositoryInput(commandPalette.query)
@@ -1901,217 +1883,23 @@ export const App = () => {
 	const selectedCommandIndex = clampCommandIndex(commandPalette.selectedIndex, commandPaletteCommands)
 	const selectedCommand = commandPaletteCommands[selectedCommandIndex] ?? null
 
-	const noModalActive = activeModal._tag === "None"
-	const globalLayerActive = noModalActive
-		&& !diffFullView
-		&& !detailFullView
-		&& !filterMode
-	useScopedBindings({
-		when: true,
-		bindings: {
-			"ctrl+p": "command.open",
-			"meta+k": "command.open",
-		},
-	})
-
-	useScopedBindings({
-		when: closeModalActive,
-		bindings: {
-			escape: closeActiveModal,
-			return: confirmClosePullRequest,
-		},
-	})
-
+	// === Helpers used by the keymap layers ===
 	const moveMergeSelection = (delta: -1 | 1) => setMergeModal((current) => {
 		const max = Math.max(0, availableMergeActions(mergeModal.info).length - 1)
 		return { ...current, selectedIndex: Math.max(0, Math.min(max, current.selectedIndex + delta)) }
 	})
-	useScopedBindings({
-		when: mergeModalActive,
-		bindings: {
-			escape: closeActiveModal,
-			return: () => {
-				if (availableMergeActions(mergeModal.info).length > 0) confirmMergeAction()
-			},
-			up: () => moveMergeSelection(-1),
-			k: () => moveMergeSelection(-1),
-			down: () => moveMergeSelection(1),
-			j: () => moveMergeSelection(1),
-		},
-	})
-
 	const scrollCommentThread = (delta: number) => setCommentThreadModal((current) => ({
 		...current,
 		scrollOffset: Math.max(0, current.scrollOffset + delta),
 	}))
-	useScopedBindings({
-		when: commentThreadModalActive,
-		bindings: {
-			escape: closeActiveModal,
-			return: openDiffCommentModal,
-			a: openDiffCommentModal,
-			c: openDiffCommentModal,
-			up: () => scrollCommentThread(-1),
-			k: () => scrollCommentThread(-1),
-			down: () => scrollCommentThread(1),
-			j: () => scrollCommentThread(1),
-			pageup: () => scrollCommentThread(-halfPage),
-			"ctrl+u": () => scrollCommentThread(-halfPage),
-			pagedown: () => scrollCommentThread(halfPage),
-			"ctrl+d": () => scrollCommentThread(halfPage),
-			"ctrl+v": () => scrollCommentThread(halfPage),
-		},
-	})
-
 	const moveLabelSelection = (delta: -1 | 1) => setLabelModal((current) => {
 		const max = Math.max(0, filterLabels(labelModal.availableLabels, labelModal.query).length - 1)
 		return { ...current, selectedIndex: Math.max(0, Math.min(max, current.selectedIndex + delta)) }
 	})
-	useScopedBindings({
-		when: labelModalActive,
-		bindings: {
-			escape: closeActiveModal,
-			return: toggleLabelAtIndex,
-			up: () => moveLabelSelection(-1),
-			k: () => moveLabelSelection(-1),
-			down: () => moveLabelSelection(1),
-			j: () => moveLabelSelection(1),
-		},
-	})
-
-	useScopedBindings({
-		when: themeModalActive,
-		bindings: {
-			escape: () => {
-				if (themeModal.filterMode) updateThemeQuery("", { filterMode: false })
-				else closeThemeModal(false)
-			},
-			"/": () => updateThemeQuery("", { filterMode: true }),
-			return: () => {
-				if (themeModal.filterMode && filterThemeDefinitions(themeModal.query).length === 0) return
-				closeThemeModal(true)
-			},
-			up: () => moveThemeSelection(-1),
-			down: () => moveThemeSelection(1),
-			k: () => { if (!themeModal.filterMode) moveThemeSelection(-1) },
-			j: () => { if (!themeModal.filterMode) moveThemeSelection(1) },
-		},
-	})
-
-	useScopedBindings({
-		when: openRepositoryModalActive,
-		bindings: {
-			escape: closeActiveModal,
-			return: openRepositoryFromInput,
-		},
-	})
-
-	useScopedBindings({
-		when: commentModalActive,
-		bindings: {
-			escape: closeActiveModal,
-			"ctrl+s": submitDiffComment,
-			"ctrl+a": () => editComment(moveLineStart),
-			"ctrl+e": () => editComment(moveLineEnd),
-			"ctrl+b": () => editComment(editorMoveLeft),
-			"ctrl+f": () => editComment(editorMoveRight),
-			"ctrl+w": () => editComment(deleteWordBackward),
-			"ctrl+u": () => editComment(deleteToLineStart),
-			"ctrl+k": () => editComment(deleteToLineEnd),
-			"ctrl+d": () => editComment(editorDeleteForward),
-			"meta+b": () => editComment(moveWordBackward),
-			"meta+left": () => editComment(moveWordBackward),
-			"meta+f": () => editComment(moveWordForward),
-			"meta+right": () => editComment(moveWordForward),
-			"meta+backspace": () => editComment(deleteWordBackward),
-			"meta+delete": () => editComment(deleteWordForward),
-			backspace: () => editComment(editorBackspace),
-			delete: () => editComment(editorDeleteForward),
-			left: () => editComment(editorMoveLeft),
-			right: () => editComment(editorMoveRight),
-			up: () => editComment((state) => moveVertically(state, -1)),
-			down: () => editComment((state) => moveVertically(state, 1)),
-			home: () => editComment(moveLineStart),
-			end: () => editComment(moveLineEnd),
-			"shift+return": () => editComment((state) => insertText(state, "\n")),
-			return: submitDiffComment,
-		},
-	})
-
 	const moveCommandPaletteSelection = (delta: -1 | 1) => setCommandPalette((current) => {
 		const selectedIndex = clampCommandIndex(current.selectedIndex + delta, commandPaletteCommands)
 		return selectedIndex === current.selectedIndex ? current : { ...current, selectedIndex }
 	})
-	useScopedBindings({
-		when: commandPaletteActive,
-		bindings: {
-			escape: closeActiveModal,
-			"ctrl+c": closeActiveModal,
-			return: () => { if (selectedCommand) runCommand(selectedCommand, { notifyDisabled: true, closePalette: true }) },
-			up: () => moveCommandPaletteSelection(-1),
-			down: () => moveCommandPaletteSelection(1),
-		},
-	})
-
-	useScopedBindings({
-		when: filterMode,
-		bindings: {
-			escape: () => { setFilterDraft(filterQuery); setFilterMode(false) },
-			return: () => { setFilterQuery(filterDraft); setFilterMode(false) },
-		},
-	})
-
-	useScopedBindings({
-		when: diffFullView && noModalActive,
-		bindings: {
-			escape: () => {
-				if (diffCommentRangeActive) setDiffCommentRangeStartIndex(null)
-				else runCommandById("diff.close")
-			},
-			return: openSelectedDiffComment,
-			a: "diff.add-comment",
-			v: "diff.toggle-range",
-			"shift+v": "diff.toggle-view",
-			w: "diff.toggle-wrap",
-			r: "diff.reload",
-			n: "diff.next-thread",
-			p: "diff.previous-thread",
-			pageup: () => moveDiffCommentAnchor(-halfPage, { preserveViewportRow: true }),
-			"ctrl+u": () => moveDiffCommentAnchor(-halfPage, { preserveViewportRow: true }),
-			pagedown: () => moveDiffCommentAnchor(halfPage, { preserveViewportRow: true }),
-			"ctrl+d": () => moveDiffCommentAnchor(halfPage, { preserveViewportRow: true }),
-			"ctrl+v": () => moveDiffCommentAnchor(halfPage, { preserveViewportRow: true }),
-			"shift+up": () => moveDiffCommentAnchor(-8),
-			"shift+k": () => moveDiffCommentAnchor(-8),
-			"meta+up": () => moveDiffCommentAnchor(-8),
-			"meta+k": () => moveDiffCommentAnchor(-8),
-			"shift+down": () => moveDiffCommentAnchor(8),
-			"shift+j": () => moveDiffCommentAnchor(8),
-			"meta+down": () => moveDiffCommentAnchor(8),
-			"meta+j": () => moveDiffCommentAnchor(8),
-			...countedVerticalBindings(
-				(count) => moveDiffCommentAnchor(-count),
-				(count) => moveDiffCommentAnchor(count),
-			),
-			up: () => moveDiffCommentAnchor(-1),
-			k: () => moveDiffCommentAnchor(-1),
-			down: () => moveDiffCommentAnchor(1),
-			j: () => moveDiffCommentAnchor(1),
-			left: () => selectDiffCommentSide("LEFT"),
-			h: () => selectDiffCommentSide("LEFT"),
-			right: () => selectDiffCommentSide("RIGHT"),
-			l: () => selectDiffCommentSide("RIGHT"),
-			"]": "diff.next-file",
-			"[": "diff.previous-file",
-			"g g": () => moveDiffCommentToBoundary("first"),
-			"shift+g": () => moveDiffCommentToBoundary("last"),
-			"z z": () => alignSelectedDiffCommentAnchor("center"),
-			"z t": () => alignSelectedDiffCommentAnchor("top"),
-			"z b": () => alignSelectedDiffCommentAnchor("bottom"),
-			o: "pull.open-browser",
-		},
-	})
-
 	const scrollDetailFullViewBy = (delta: number) => {
 		detailScrollRef.current?.scrollBy({ x: 0, y: delta })
 		setDetailScrollOffset((current) => Math.max(0, current + delta))
@@ -2120,26 +1908,6 @@ export const App = () => {
 		detailScrollRef.current?.scrollTo({ x: 0, y })
 		setDetailScrollOffset(y)
 	}
-	useScopedBindings({
-		when: detailFullView && noModalActive,
-		bindings: {
-			...scrollBindings(scrollDetailFullViewBy, halfPage, scrollDetailFullViewTo),
-			escape: "detail.close",
-			return: "detail.close",
-			t: "theme.open",
-			d: "diff.open",
-			x: "pull.close",
-			l: "pull.labels",
-			m: "pull.merge",
-			"shift+m": "pull.merge",
-			s: "pull.toggle-draft",
-			"shift+s": "pull.toggle-draft",
-			r: "pull.refresh",
-			o: "pull.open-browser",
-			y: "pull.copy-metadata",
-		},
-	})
-
 	const moveSelectedToPreviousGroup = () => setSelectedIndex((current) => {
 		if (visiblePullRequests.length === 0 || groupStarts.length === 0) return 0
 		const currentGroup = getCurrentGroupIndex(current)
@@ -2178,48 +1946,168 @@ export const App = () => {
 		if (visiblePullRequests.length === 0) return 0
 		return current <= 0 ? visiblePullRequests.length - 1 : current - 1
 	})
-	useScopedBindings({
-		when: globalLayerActive,
-		bindings: {
-			"/": "filter.open",
-			r: "pull.refresh",
-			t: "theme.open",
-			d: "diff.open",
-			l: "pull.labels",
-			m: "pull.merge",
-			"shift+m": "pull.merge",
-			x: "pull.close",
-			o: "pull.open-browser",
-			s: "pull.toggle-draft",
-			"shift+s": "pull.toggle-draft",
-			y: "pull.copy-metadata",
-			return: "detail.open",
-			tab: () => switchQueueMode(1),
-			"shift+tab": () => switchQueueMode(-1),
-			escape: () => { if (filterQuery.length > 0) runCommandByIdRef.current("filter.clear") },
-			home: () => { if (isWideLayout && selectedPullRequest) scrollDetailPreviewTo(0) },
-			end: () => { if (isWideLayout && selectedPullRequest) scrollDetailPreviewTo(Number.MAX_SAFE_INTEGER) },
-			pageup: () => { if (isWideLayout && selectedPullRequest) scrollDetailPreviewBy(-halfPage) },
-			pagedown: () => { if (isWideLayout && selectedPullRequest) scrollDetailPreviewBy(halfPage) },
-			"[": moveSelectedToPreviousGroup,
-			"meta+up": moveSelectedToPreviousGroup,
-			"meta+k": moveSelectedToPreviousGroup,
-			"shift+k": moveSelectedToPreviousGroup,
-			"]": moveSelectedToNextGroup,
-			"meta+down": moveSelectedToNextGroup,
-			"meta+j": moveSelectedToNextGroup,
-			"shift+j": moveSelectedToNextGroup,
-			"ctrl+u": () => stepSelected(-halfPage),
-			"ctrl+d": () => stepSelected(halfPage),
-			...countedVerticalBindings(stepSelectedUp, stepSelectedDown),
-			up: stepSelectedUpWrap,
-			k: stepSelectedUpWrap,
-			down: stepSelectedDownWithLoadMore,
-			j: stepSelectedDownWithLoadMore,
-			"g g": () => setSelectedIndex(0),
-			"shift+g": () => setSelectedIndex(visiblePullRequests.length === 0 ? 0 : visiblePullRequests.length - 1),
+	const handleQuitOrClose = () => {
+		if (themeModalActive) {
+			closeThemeModal(false)
+			return
+		}
+		if (activeModal._tag !== "None") {
+			closeActiveModal()
+			return
+		}
+		runCommandById("app.quit")
+	}
+
+	// === Build the keymap context ===
+	const appCtx: AppCtx = {
+		closeModalActive,
+		mergeModalActive,
+		commentThreadModalActive,
+		labelModalActive,
+		themeModalActive,
+		openRepositoryModalActive,
+		commentModalActive,
+		commandPaletteActive,
+		filterMode,
+		diffFullView,
+		detailFullView,
+		textInputActive: commentModalActive
+			|| commandPaletteActive
+			|| openRepositoryModalActive
+			|| labelModalActive
+			|| filterMode
+			|| (themeModalActive && themeModal.filterMode),
+		closeModal: {
+			closeModal: closeActiveModal,
+			confirmClose: confirmClosePullRequest,
 		},
-	})
+		mergeModal: {
+			availableActionCount: availableMergeActions(mergeModal.info).length,
+			closeModal: closeActiveModal,
+			confirmMerge: confirmMergeAction,
+			moveSelection: moveMergeSelection,
+		},
+		commentThreadModal: {
+			halfPage,
+			closeModal: closeActiveModal,
+			openInlineComment: openDiffCommentModal,
+			scrollBy: scrollCommentThread,
+		},
+		labelModal: {
+			closeModal: closeActiveModal,
+			toggleSelected: toggleLabelAtIndex,
+			moveSelection: moveLabelSelection,
+		},
+		themeModal: {
+			filterMode: themeModal.filterMode,
+			hasFilteredResults: filterThemeDefinitions(themeModal.query).length > 0,
+			closeWithoutSaving: () => closeThemeModal(false),
+			clearFilter: () => updateThemeQuery("", { filterMode: false }),
+			enterFilterMode: () => updateThemeQuery("", { filterMode: true }),
+			confirmSelection: () => closeThemeModal(true),
+			moveSelection: moveThemeSelection,
+		},
+		openRepositoryModal: {
+			closeModal: closeActiveModal,
+			openFromInput: openRepositoryFromInput,
+		},
+		commentModal: {
+			closeModal: closeActiveModal,
+			submit: submitDiffComment,
+			insertNewline: () => editComment((state) => insertText(state, "\n")),
+			moveLeft: () => editComment(editorMoveLeft),
+			moveRight: () => editComment(editorMoveRight),
+			moveUp: () => editComment((state) => moveVertically(state, -1)),
+			moveDown: () => editComment((state) => moveVertically(state, 1)),
+			moveLineStart: () => editComment(moveLineStart),
+			moveLineEnd: () => editComment(moveLineEnd),
+			moveWordBackward: () => editComment(moveWordBackward),
+			moveWordForward: () => editComment(moveWordForward),
+			backspace: () => editComment(editorBackspace),
+			deleteForward: () => editComment(editorDeleteForward),
+			deleteWordBackward: () => editComment(deleteWordBackward),
+			deleteWordForward: () => editComment(deleteWordForward),
+			deleteToLineStart: () => editComment(deleteToLineStart),
+			deleteToLineEnd: () => editComment(deleteToLineEnd),
+		},
+		commandPalette: {
+			closeModal: closeActiveModal,
+			runSelected: () => {
+				if (selectedCommand) runCommand(selectedCommand, { notifyDisabled: true, closePalette: true })
+			},
+			moveSelection: moveCommandPaletteSelection,
+		},
+		filterModeCtx: {
+			cancel: () => {
+				setFilterDraft(filterQuery)
+				setFilterMode(false)
+			},
+			commit: () => {
+				setFilterQuery(filterDraft)
+				setFilterMode(false)
+			},
+		},
+		diff: {
+			halfPage,
+			handleEscape: () => {
+				if (diffCommentRangeActive) setDiffCommentRangeStartIndex(null)
+				else runCommandById("diff.close")
+			},
+			openSelectedComment: openSelectedDiffComment,
+			addComment: () => runCommandById("diff.add-comment"),
+			toggleRange: () => runCommandById("diff.toggle-range"),
+			toggleView: () => runCommandById("diff.toggle-view"),
+			toggleWrap: () => runCommandById("diff.toggle-wrap"),
+			reload: () => runCommandById("diff.reload"),
+			nextThread: () => runCommandById("diff.next-thread"),
+			previousThread: () => runCommandById("diff.previous-thread"),
+			moveAnchor: moveDiffCommentAnchor,
+			moveAnchorToBoundary: moveDiffCommentToBoundary,
+			alignAnchor: alignSelectedDiffCommentAnchor,
+			selectSide: selectDiffCommentSide,
+			nextFile: () => runCommandById("diff.next-file"),
+			previousFile: () => runCommandById("diff.previous-file"),
+			openInBrowser: () => runCommandById("pull.open-browser"),
+		},
+		detail: {
+			halfPage,
+			scrollBy: scrollDetailFullViewBy,
+			scrollTo: scrollDetailFullViewTo,
+			closeDetail: () => runCommandById("detail.close"),
+			openTheme: () => runCommandById("theme.open"),
+			openDiff: () => runCommandById("diff.open"),
+			closePullRequest: () => runCommandById("pull.close"),
+			openLabels: () => runCommandById("pull.labels"),
+			openMerge: () => runCommandById("pull.merge"),
+			toggleDraft: () => runCommandById("pull.toggle-draft"),
+			refresh: () => runCommandById("pull.refresh"),
+			openInBrowser: () => runCommandById("pull.open-browser"),
+			copyMetadata: () => runCommandById("pull.copy-metadata"),
+		},
+		listNav: {
+			halfPage,
+			visibleCount: visiblePullRequests.length,
+			hasFilter: filterQuery.length > 0,
+			canScrollDetailPreview: isWideLayout && selectedPullRequest !== null,
+			runCommandById: (id) => { runCommandById(id) },
+			switchQueueMode,
+			scrollDetailPreviewBy,
+			scrollDetailPreviewTo,
+			clearFilter: () => { runCommandById("filter.clear") },
+			stepSelected,
+			stepSelectedUp,
+			stepSelectedDown,
+			stepSelectedUpWrap,
+			stepSelectedDownWithLoadMore,
+			moveSelectedToPreviousGroup,
+			moveSelectedToNextGroup,
+			setSelected: (index) => setSelectedIndex(index),
+		},
+		openCommandPalette: () => { runCommandById("command.open") },
+		handleQuitOrClose,
+	}
+
+	useKeymap(appKeymap, appCtx, useOpenTuiSubscribe())
 
 	useKeyboard((key) => {
 		if (commandPaletteActive) {
@@ -2243,18 +2131,9 @@ export const App = () => {
 			return
 		}
 
-		if ((key.name === "q" && !commentModalActive && !(themeModalActive && themeModal.filterMode)) || (key.ctrl && key.name === "c")) {
-			if (themeModalActive) {
-				closeThemeModal(false)
-				return
-			}
-			if (activeModal._tag !== "None") {
-				closeActiveModal()
-				return
-			}
-			runCommandById("app.quit")
-			return
-		}
+		// q / ctrl+c quit/close-modal logic now lives in the keymap layer
+		// (handleQuitOrClose). This useKeyboard callback only handles raw text
+		// input for modals that need character-by-character accumulation.
 
 		if (themeModalActive) {
 			if (themeModal.filterMode && isSingleLineInputKey(key)) {
