@@ -68,7 +68,7 @@ describe("integration — compositional API", () => {
 		const dispatcher = createDispatcher(appKm, () => appCtx)
 
 		// Not in diff: keys are ignored
-		expect(dispatcher.dispatch(parseKey("k")).kind).toBe("ignored")
+		expect(dispatcher.dispatch(parseKey("k")).kind).toBe("no-match")
 
 		// Switch to diff: now active
 		appCtx = makeAppCtx({ view: "diff" })
@@ -136,7 +136,7 @@ describe("integration — compositional API", () => {
 		expect(result.kind).toBe("disabled")
 
 		// modal not active: escape ignored
-		expect(dispatcher.dispatch(parseKey("escape")).kind).toBe("ignored")
+		expect(dispatcher.dispatch(parseKey("escape")).kind).toBe("no-match")
 	})
 
 	test("Keymap.active gives palette/footer view of currently runnable bindings", () => {
@@ -174,7 +174,7 @@ describe("integration — compositional API", () => {
 		const dispatcher = createDispatcher(tools, () => ctx)
 
 		// "r" alone is unbound (everything's space-prefixed)
-		expect(dispatcher.dispatch(parseKey("r")).kind).toBe("ignored")
+		expect(dispatcher.dispatch(parseKey("r")).kind).toBe("no-match")
 
 		// "space r" runs refresh
 		dispatcher.dispatch(parseKey("space"))

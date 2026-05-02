@@ -7,6 +7,7 @@ export interface CommandConfig<C> {
 	readonly title?: string
 	readonly description?: string
 	readonly group?: string
+	readonly keywords?: readonly string[]
 	readonly keys: readonly string[] | string
 	readonly when?: (ctx: C) => boolean
 	readonly enabled?: (ctx: C) => Enabled
@@ -19,6 +20,7 @@ const buildMeta = (config: CommandConfig<unknown>): BindingMeta | undefined => {
 		...(config.title !== undefined && { title: config.title }),
 		...(config.description !== undefined && { description: config.description }),
 		...(config.group !== undefined && { group: config.group }),
+		...(config.keywords !== undefined && { keywords: config.keywords }),
 	}
 	return Object.keys(meta).length > 0 ? meta : undefined
 }
@@ -30,8 +32,9 @@ const buildMeta = (config: CommandConfig<unknown>): BindingMeta | undefined => {
 export const command = <C>(config: CommandConfig<C>): Keymap<C> => {
 	const keys = typeof config.keys === "string" ? [config.keys] : config.keys
 	const meta = buildMeta(config as CommandConfig<unknown>)
-	const bindings: Binding<C>[] = keys.map((key) => ({
-		sequence: parseBinding(key),
+	const sequences = keys.length === 0 ? [[]] as readonly (readonly never[])[] : keys.map(parseBinding)
+	const bindings: Binding<C>[] = sequences.map((sequence) => ({
+		sequence,
 		...(config.when ? { when: config.when } : {}),
 		...(config.enabled ? { enabled: config.enabled } : {}),
 		action: config.run,

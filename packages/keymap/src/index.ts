@@ -1,8 +1,10 @@
 export {
 	type Binding,
 	type BindingMeta,
+	type Command,
 	type Enabled,
 	isBindingActive,
+	isCommand,
 } from "./binding.ts"
 export { command, type CommandConfig } from "./command.ts"
 export {
@@ -23,3 +25,12 @@ export {
 	sequenceStartsWith,
 	strokeMatches,
 } from "./keys.ts"
+export {
+	type DispatchDecision,
+	type DispatchState,
+	initialDispatchState,
+	pureDispatch,
+	type PureDispatchOptions,
+	pureTick,
+} from "./pure-dispatch.ts"
+export { type BindingSnapshot, snapshot } from "./snapshot.ts"

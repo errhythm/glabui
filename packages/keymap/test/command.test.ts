@@ -62,6 +62,23 @@ describe("command()", () => {
 		expect(km.bindings[0]!.meta).toBeUndefined()
 	})
 
+	test("keywords are passed through to meta", () => {
+		const km = command<Ctx>({
+			id: "refresh",
+			title: "Refresh",
+			keywords: ["reload", "fetch"],
+			keys: ["r"],
+			run: () => {},
+		})
+		expect(km.bindings[0]!.meta?.keywords).toEqual(["reload", "fetch"])
+	})
+
+	test("empty keys produces a palette-only binding (sequence: [])", () => {
+		const km = command<Ctx>({ id: "settings", title: "Settings", keys: [], run: () => {} })
+		expect(km.bindings).toHaveLength(1)
+		expect(km.bindings[0]!.sequence).toEqual([])
+	})
+
 	test("composes via union and contramap", () => {
 		const km = command<Ctx>({ id: "r", keys: ["r"], run: (s) => s.log.push("r") })
 			.union(command<Ctx>({ id: "s", keys: ["s"], run: (s) => s.log.push("s") }))

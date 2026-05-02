@@ -1,10 +1,10 @@
 # @ghui/keymap
 
 A small, opinionated keymap library where **bindings are values you compose**,
-not React side effects scattered across your tree.
+**state is input**, and **dispatch is a pure function**.
 
 ```ts
-import { command, createDispatcher, Keymap, parseKey } from "@ghui/keymap"
+import { command, createDispatcher, Keymap, parseKey, snapshot } from "@ghui/keymap"
 
 interface DiffState {
 	scrollBy: (delta: number) => void
@@ -16,7 +16,6 @@ const diffKeymap: Keymap<DiffState> = Keymap.union(
 	command({ id: "diff.top",  title: "Top",  keys: ["g g"],       run: (s) => s.scrollBy(-Infinity) }),
 )
 
-// Lift the diff keymap into your app's wider context:
 interface AppCtx { view: "list" | "diff"; diff: DiffState }
 const appKeymap: Keymap<AppCtx> = diffKeymap.contramapMaybe(
 	(app) => app.view === "diff" ? app.diff : null
@@ -25,96 +24,127 @@ const appKeymap: Keymap<AppCtx> = diffKeymap.contramapMaybe(
 
 ## Why this shape
 
-The unit of authoring is `Keymap<C>`. It is:
+`Keymap<C>` is the unit of authoring. It is:
 
-- **A monoid under `union`.** Two keymaps over the same context combine. `Keymap.empty<C>()` is identity. Associative.
-- **Contravariant in `C`.** Sub-keymaps over narrow contexts lift into wider ones via `contramap` and `contramapMaybe`. The diff keymap above doesn't know about `AppCtx`; the app composes it in via a projection.
-- **Restrictable.** `restrict(predicate)` AND-merges into every binding's `when`. Compose narrow scopes from broader ones.
-- **Prefixable.** `prefix("space")` prepends a stroke to every binding — leader keys for free.
+- **A monoid** under `union` — combine keymaps over the same context, identity is `Keymap.empty()`, associative.
+- **Contravariant** in `C` via `contramap` / `contramapMaybe` — sub-keymaps over narrow contexts lift into wider ones via projection.
+- **Restrictable** with `restrict(predicate)` — AND-merges a predicate into every binding's `when`.
+- **Prefixable** with `prefix("space")` — leader keys for free.
 
-Every combinator returns a `Keymap<C>`. The algebra is closed.
+Every combinator returns a Keymap. The algebra is closed. Laws asserted in tests.
 
-```ts
-const km: Keymap<AppCtx> = sub
-	.contramapMaybe(project)
-	.restrict(isUnlocked)
-	.prefix("space")
+## Why this engine
 
-const palette = km.active(currentCtx)  // bindings runnable right now, with meta
-```
+Dispatch is a **pure function** of `(keymap, state, stroke, ctx, now)` returning
+`(state, decision)`. State is data: `{ pending, timeoutAt }`. The stateful
+`createDispatcher` is a thin wrapper around the pure core.
 
-## Compositionality, by example
+That means:
 
-A diff view's keybindings know only about a `DiffState`. A detail view's only
-about a `DetailState`. The app glues them together; no sub-keymap leaks the
-parent's shape.
+- **Testable without React or fake timers** for the dispatch logic itself.
+- **State is observable**: `dispatcher.getState()`, `dispatcher.onStateChange(...)`.
+- **Replay, time-travel, snapshot** all become possible because runtime state is just data.
 
 ```ts
-const appKm = Keymap.union(
-	diffKm.contramapMaybe<AppCtx>((a) => a.view === "diff"   ? a.diff   : null),
-	detailKm.contramapMaybe<AppCtx>((a) => a.view === "detail" ? a.detail : null),
-	globalKm,
-)
+import { initialDispatchState, pureDispatch } from "@ghui/keymap"
+
+const { state, decision } = pureDispatch(km, initialDispatchState, parseKey("g"), ctx, now)
+// decision: { kind: "ran" | "pending" | "disabled" | "no-match", ... }
+// state:    { pending: [...], timeoutAt: number | null }
 ```
 
-When the user is in the diff view, the diff keymap's bindings are dispatchable
-against `app.diff`. When they're in detail view, the detail bindings are.
-Same key (`"k"`) in both — no collision because `when` predicates are exclusive.
+## API surface
 
-## Type safety
+### Defining bindings
 
-`Keymap<C>` is parametric in C. `contramap<C2>(f: (c2: C2) => C): Keymap<C2>`
-flips it: a sub-keymap and a projection function compose into a wider-context
-keymap. Forget the projection or get the types wrong and the compiler tells
-you.
+| | |
+|---|---|
+| `defineCommand({ id, title, keys, run, ... })` | Build a Keymap from one logical command. |
+| `keys: ["r"]` / `["g g"]` / `["k", "up"]` | Single, sequence, or alternatives. |
+| `when: (ctx) => boolean` | Scope predicate. |
+| `enabled: (ctx) => true \| false \| string` | Gate with optional reason. |
+| `keywords: ["reload", "fetch"]` | For palette search. |
 
-`Binding<C>` carries an optional `meta: { id, title, description, group }` that
-survives every combinator. Palettes and footer hints read it via
-`keymap.active(ctx)`.
+### Composing
 
-## API
+| | |
+|---|---|
+| `Keymap.empty<C>()` | Identity for union. |
+| `Keymap.union(...kms)` | Concatenate bindings. |
+| `km.contramap((c2) => c)` | Lift to wider context. |
+| `km.contramapMaybe((c2) => c \| null)` | Lift; null = inactive. |
+| `km.restrict((c) => boolean)` | AND-merge into `when`. |
+| `km.prefix("space")` | Prepend to all sequences. |
+| `km.union(other)` | Instance form. |
+| `km.filter((b) => boolean)` | Drop bindings. |
+| `for (const b of km)` | Iterate (Symbol.iterator). |
 
-| Operation | Signature | What it does |
-|---|---|---|
-| `Keymap.empty<C>()` | `() => Keymap<C>` | Monoid identity |
-| `Keymap.union(...kms)` | `(...Keymap<C>[]) => Keymap<C>` | Concatenate bindings |
-| `km.contramap(f)` | `(C2 → C) => Keymap<C2>` | Lift to wider context |
-| `km.contramapMaybe(f)` | `(C2 → C \| null) => Keymap<C2>` | Lift, deactivate when null |
-| `km.restrict(p)` | `(C → boolean) => Keymap<C>` | AND-merge into all `when` |
-| `km.prefix(stroke)` | `(string \| Stroke) => Keymap<C>` | Prepend to all sequences |
-| `km.filter(p)` | `(Binding<C> → boolean) => Keymap<C>` | Drop bindings |
-| `km.active(ctx)` | `(C) => readonly Binding<C>[]` | Currently-runnable bindings |
-| `command(config)` | `(CommandConfig<C>) => Keymap<C>` | Build from one logical command |
-| `createDispatcher(km, getCtx)` | | Pure dispatcher; pass to a host adapter |
-| `useKeymap(km, ctx, subscribe)` | React hook | Mounts and dispatches |
+### Reading
+
+| | |
+|---|---|
+| `km.active(ctx)` | Currently-runnable bindings. |
+| `km.commands(ctx)` | Active bindings narrowed to `Command<C>` (id+title required). |
+| `snapshot(km, ctx)` | Serializable view: `{ sequence, status, meta }[]`. |
+| `isCommand(binding)` | Type guard. |
+
+### Dispatching
+
+| | |
+|---|---|
+| `createDispatcher(km, getCtx, options?)` | Stateful wrapper over `pureDispatch`. |
+| `dispatcher.dispatch(stroke)` | Process a key. |
+| `dispatcher.runById("pull.refresh")` | Run by command id, no key required. |
+| `dispatcher.getState()` | `{ pending, timeoutAt }`. |
+| `dispatcher.onStateChange(cb)` | Subscribe. |
+| `pureDispatch(km, state, stroke, ctx, now)` | Pure core; for tests/replay/SSR. |
+| `pureTick(km, state, ctx, now)` | Process timeouts purely. |
+
+### React
+
+| | |
+|---|---|
+| `useKeymap(km, ctx, subscribe)` | Mounts; re-creates dispatcher on `km` change. |
+| `useDispatchState(dispatcher)` | Reactive `{ pending, timeoutAt }`. |
+| `usePendingSequence(dispatcher)` | Convenience: just pending. |
 
 ## Sequences and disambiguation
 
-Bindings are space-separated strokes: `"r"`, `"g g"`, `"ctrl+x ctrl+c"`. When
-both `g` and `g g` are bound and active, pressing `g` enters a pending state.
-A second `g` runs the sequence; an unrelated key clears pending and re-dispatches
-fresh; a 500ms timeout commits to the single-stroke binding (configurable).
+`"r"` single, `"g g"` two-stroke, `"ctrl+x ctrl+c"` modifier sequences. When
+`g` and `g g` are both bound and active, pressing `g` enters pending; a second
+`g` runs the sequence; an unrelated key clears pending and re-dispatches fresh;
+a 500ms timeout commits to `g`. Configurable via `disambiguationTimeoutMs`.
 
 The dispatcher accepts an injectable `Clock` for deterministic tests.
 
-## Non-goals
+## Type narrowing
 
-- Pluggable parsers, transformers, fields, attrs, or layer priorities. `when`
-  predicates and contramap are how you scope.
-- Async run handlers as a first-class feature. `run` may return anything; the
-  dispatcher does not await.
-- Type-level key-string validation. Keystrokes are parsed at command-definition
-  time and a typo becomes a runtime no-op. (Tests catch this in practice.)
+```ts
+import { isCommand, type Command } from "@ghui/keymap"
 
-## Laws
+const all = km.bindings              // Binding<C>[] — meta is optional
+const cmds = all.filter(isCommand)   // Command<C>[] — meta.id, meta.title required
+const active = km.commands(ctx)      // Command<C>[] runnable now
 
-The combinators obey:
+// In palette code:
+active.map((c) => c.meta.title)      // No optional chaining needed
+```
+
+## Laws (asserted in tests)
 
 - **Monoid (`union`)**: identity (`empty`), associativity.
-- **Contravariant functor (`contramap`)**: identity (`contramap(id) ≡ km`),
-  composition (`contramap(g).contramap(f) ≡ contramap(c => g(f(c)))`).
+- **Contravariant functor (`contramap`)**: `contramap(id) ≡ km`; `contramap(g).contramap(f) ≡ contramap(c => g(f(c)))`.
 - **`restrict` is idempotent for the same predicate.**
 - **`prefix` composes**: `prefix(b).prefix(a) ≡ prefix("a b")`.
 - **Meta survives every combinator.**
+- **`pureDispatch` is referentially transparent**: same inputs → same output.
 
-All asserted by the test suite.
+## Non-goals
+
+- Type-level key-string validation. Keystrokes are parsed at definition time;
+  typos become runtime no-ops.
+- Layer priorities or weighted resolution. `when` predicates are how you scope.
+  Optional `onCollision` callback warns when active bindings share a sequence.
+- Async run with cancellation. `run` may return anything; the dispatcher
+  doesn't await.
+- Pluggable parsers, transformers, attrs, or fields.

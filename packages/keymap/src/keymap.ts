@@ -1,4 +1,4 @@
-import { type Binding, isBindingActive } from "./binding.ts"
+import { type Binding, type Command, isBindingActive, isCommand } from "./binding.ts"
 import { type ParsedStroke, parseBinding } from "./keys.ts"
 
 const liftBinding = <C, C2>(binding: Binding<C>, project: (c2: C2) => C): Binding<C2> => ({
@@ -100,5 +100,14 @@ export class Keymap<C> {
 
 	active(ctx: C): readonly Binding<C>[] {
 		return this.bindings.filter((b) => isBindingActive(b, ctx) === true)
+	}
+
+	/** Active bindings whose meta has id+title — type-narrowed to Command<C>. */
+	commands(ctx: C): readonly Command<C>[] {
+		return this.bindings.filter((b): b is Command<C> => isBindingActive(b, ctx) === true && isCommand(b))
+	}
+
+	[Symbol.iterator](): Iterator<Binding<C>> {
+		return this.bindings[Symbol.iterator]()
 	}
 }

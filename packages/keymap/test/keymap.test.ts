@@ -211,6 +211,23 @@ describe("Keymap.active", () => {
 	})
 })
 
+describe("Keymap iteration", () => {
+	test("Symbol.iterator yields bindings", () => {
+		const a = makeKm(1, "a")
+		const b = makeKm(2, "b")
+		const km = a.union(b)
+		const seen = [...km].length
+		expect(seen).toBe(2)
+	})
+
+	test("for-of works", () => {
+		const km = makeKm(1, "x")
+		const ids: number[] = []
+		for (const _ of km) ids.push(1)
+		expect(ids).toEqual([1])
+	})
+})
+
 describe("Keymap meta survives all combinators", () => {
 	const meta: Binding<CtxA>["meta"] = { id: "x", title: "Test", group: "Test" }
 	const km = new Keymap<CtxA>([{ sequence: parseBinding("x"), action: incBy(1), meta }])
