@@ -4,13 +4,18 @@ import type { ParsedStroke } from "@ghui/keymap"
 import type { KeySubscribe } from "@ghui/keymap/react"
 import { useMemo, useRef } from "react"
 
+const normalizeKeyName = (name: string) => {
+	const key = name.toLowerCase()
+	return key === "enter" ? "return" : key
+}
+
 /**
  * Map an opentui KeyEvent into @ghui/keymap's ParsedStroke.
  * `option` (alt key on Linux/Windows) is folded into `meta` to keep one
  * cross-platform modifier surface.
  */
 export const normalizeOpenTuiKey = (event: KeyEvent): ParsedStroke => ({
-	key: event.name.toLowerCase(),
+	key: normalizeKeyName(event.name),
 	ctrl: event.ctrl,
 	shift: event.shift,
 	meta: event.meta || event.option,
