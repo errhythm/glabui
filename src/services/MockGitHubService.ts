@@ -3,7 +3,7 @@ import type {
 	CheckItem,
 	CreatePullRequestCommentInput,
 	Mergeable,
-	PullRequestConversationItem,
+	PullRequestComment,
 	PullRequestItem,
 	PullRequestLabel,
 	PullRequestMergeInfo,
@@ -134,7 +134,7 @@ export const MockGitHubService = {
 				}) satisfies PullRequestItem,
 		)
 		const findPullRequest = (repository: string, number: number) => items.find((item) => item.repository === repository && item.number === number) ?? items[0]!
-		const conversationItems = (repository: string, number: number): readonly PullRequestConversationItem[] => [
+		const comments = (repository: string, number: number): readonly PullRequestComment[] => [
 			{
 				_tag: "comment",
 				id: `mock-comment:${repository}:${number}:1`,
@@ -147,7 +147,7 @@ export const MockGitHubService = {
 				_tag: "review-comment",
 				id: `mock-review:${repository}:${number}:1`,
 				author: "mock-reviewer",
-				body: "Inline review comment rendered in the same conversation stream.",
+				body: "Inline review comment rendered in the same comments stream.",
 				createdAt: new Date(Date.now() - 1_800_000),
 				url: null,
 				path: "src/App.tsx",
@@ -165,8 +165,8 @@ export const MockGitHubService = {
 				getPullRequestDetails: (repository, number) => Effect.succeed(findPullRequest(repository, number)),
 				getAuthenticatedUser: () => Effect.succeed(username),
 				getPullRequestDiff: (_repo, _number) => Effect.succeed(mockDiff),
-				listPullRequestComments: (_repo, _number) => Effect.succeed([] as readonly PullRequestReviewComment[]),
-				listPullRequestConversation: (repository, number) => Effect.succeed(conversationItems(repository, number)),
+				listPullRequestReviewComments: (_repo, _number) => Effect.succeed([] as readonly PullRequestReviewComment[]),
+				listPullRequestComments: (repository, number) => Effect.succeed(comments(repository, number)),
 				getPullRequestMergeInfo: (repository, number) => {
 					const pr = findPullRequest(repository, number)
 					return Effect.succeed({

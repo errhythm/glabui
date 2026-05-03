@@ -7,7 +7,7 @@ import {
 	type CreatePullRequestCommentInput,
 	type ListPullRequestPageInput,
 	type Mergeable,
-	type PullRequestConversationItem,
+	type PullRequestComment,
 	type PullRequestItem,
 	type PullRequestMergeAction,
 	type PullRequestMergeInfo,
@@ -488,23 +488,21 @@ const parsePullRequestComments = (response: Schema.Schema.Type<typeof CommentsRe
 	})
 }
 
-const parseIssueComment = (comment: RawPullRequestComment): PullRequestConversationItem => ({
+const parseIssueComment = (comment: RawPullRequestComment): PullRequestComment => ({
 	_tag: "comment",
 	...rawCommentFields(comment, `${comment.created_at ?? ""}:${comment.body ?? ""}`),
 })
 
-const reviewCommentConversationItem = (comment: PullRequestReviewComment): PullRequestConversationItem => ({
+const reviewCommentAsComment = (comment: PullRequestReviewComment): PullRequestComment => ({
 	_tag: "review-comment",
 	...comment,
 })
 
-const conversationItemTime = (item: PullRequestConversationItem) => item.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER
+const commentTime = (item: PullRequestComment) => item.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER
 
-const sortConversationItems = (items: readonly PullRequestConversationItem[]) =>
-	[...items].sort((left, right) => conversationItemTime(left) - conversationItemTime(right) || left.id.localeCompare(right.id))
+const sortComments = (items: readonly PullRequestComment[]) => [...items].sort((left, right) => commentTime(left) - commentTime(right) || left.id.localeCompare(right.id))
 
-const parseIssueComments = (response: Schema.Schema.Type<typeof CommentsResponseSchema>): readonly PullRequestConversationItem[] =>
-	flattenSlurpedPages(response).map(parseIssueComment)
+const parseIssueComments = (response: Schema.Schema.Type<typeof CommentsResponseSchema>): readonly PullRequestComment[] => flattenSlurpedPages(response).map(parseIssueComment)
 
 const flattenSlurpedPages = <Item>(response: readonly Item[] | readonly (readonly Item[])[]): readonly Item[] =>
 	Array.isArray(response[0]) ? (response as readonly (readonly Item[])[]).flat() : (response as readonly Item[])
@@ -567,8 +565,8 @@ export class GitHubService extends Context.Service<
 		readonly getPullRequestDetails: (repository: string, number: number) => Effect.Effect<PullRequestItem, GitHubError>
 		readonly getAuthenticatedUser: () => Effect.Effect<string, GitHubError>
 		readonly getPullRequestDiff: (repository: string, number: number) => Effect.Effect<string, GitHubError>
-		readonly listPullRequestComments: (repository: string, number: number) => Effect.Effect<readonly PullRequestReviewComment[], GitHubError>
-		readonly listPullRequestConversation: (repository: string, number: number) => Effect.Effect<readonly PullRequestConversationItem[], GitHubError>
+		readonly listPullRequestReviewComments: (repository: string, number: number) => Effect.Effect<readonly PullRequestReviewComment[], GitHubError>
+		readonly listPullRequestComments: (repository: string, number: number) => Effect.Effect<readonly PullRequestComment[], GitHubError>
 		readonly getPullRequestMergeInfo: (repository: string, number: number) => Effect.Effect<PullRequestMergeInfo, GitHubError>
 		readonly getRepositoryMergeMethods: (repository: string) => Effect.Effect<RepositoryMergeMethods, GitHubError>
 		readonly mergePullRequest: (repository: string, number: number, action: PullRequestMergeAction) => Effect.Effect<void, CommandError>
@@ -703,23 +701,23 @@ export class GitHubService extends Context.Service<
 					Effect.map((response) => pullRequestFilesToPatch(parsePullRequestFiles(response))),
 				)
 
-			const listPullRequestComments = (repository: string, number: number) =>
-				ghJson("listPullRequestComments", CommentsResponseSchema, ["api", "--paginate", "--slurp", `repos/${repository}/pulls/${number}/comments`]).pipe(
+			const listPullRequestReviewComments = (repository: string, number: number) =>
+				ghJson("listPullRequestReviewComments", CommentsResponseSchema, ["api", "--paginate", "--slurp", `repos/${repository}/pulls/${number}/comments`]).pipe(
 					Effect.map(parsePullRequestComments),
 				)
 
-			const listPullRequestConversation = Effect.fn("GitHubService.listPullRequestConversation")(function* (repository: string, number: number) {
+			const listPullRequestComments = Effect.fn("GitHubService.listPullRequestComments")(function* (repository: string, number: number) {
 				const [issueComments, reviewComments] = yield* Effect.all(
 					[
 						ghJson("listPullRequestIssueComments", CommentsResponseSchema, ["api", "--paginate", "--slurp", `repos/${repository}/issues/${number}/comments`]).pipe(
 							Effect.map(parseIssueComments),
 						),
-						listPullRequestComments(repository, number).pipe(Effect.map((comments) => comments.map(reviewCommentConversationItem))),
+						listPullRequestReviewComments(repository, number).pipe(Effect.map((comments) => comments.map(reviewCommentAsComment))),
 					],
 					{ concurrency: "unbounded" },
 				)
 
-				return sortConversationItems([...issueComments, ...reviewComments])
+				return sortComments([...issueComments, ...reviewComments])
 			})
 
 			const getPullRequestMergeInfo = Effect.fn("GitHubService.getPullRequestMergeInfo")(function* (repository: string, number: number) {
@@ -829,8 +827,8 @@ export class GitHubService extends Context.Service<
 				getPullRequestDetails,
 				getAuthenticatedUser,
 				getPullRequestDiff,
+				listPullRequestReviewComments,
 				listPullRequestComments,
-				listPullRequestConversation,
 				getPullRequestMergeInfo,
 				getRepositoryMergeMethods,
 				mergePullRequest,

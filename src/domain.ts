@@ -111,7 +111,7 @@ export interface PullRequestReviewComment {
 	readonly url: string | null
 }
 
-export type PullRequestConversationItem =
+export type PullRequestComment =
 	| {
 			readonly _tag: "comment"
 			readonly id: string

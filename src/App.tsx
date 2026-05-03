@@ -18,7 +18,7 @@ import {
 	type DiffCommentSide,
 	type ListPullRequestPageInput,
 	type LoadStatus,
-	type PullRequestConversationItem,
+	type PullRequestComment,
 	type PullRequestItem,
 	type PullRequestLabel,
 	type PullRequestMergeAction,
@@ -101,7 +101,7 @@ import {
 	getDetailHeaderHeight,
 	getDetailJunctionRows,
 	getScrollableDetailBodyHeight,
-	type DetailConversationStatus,
+	type DetailCommentsStatus,
 	type DetailPlaceholderContent,
 } from "./ui/DetailsPane.js"
 import { FooterHints, initialRetryProgress, RetryProgress } from "./ui/FooterHints.js"
@@ -322,8 +322,8 @@ const diffPreferredSideAtom = Atom.make<DiffCommentSide | null>(null)
 const diffCommentRangeStartIndexAtom = Atom.make<number | null>(null)
 const diffCommentThreadsAtom = Atom.make<Record<string, readonly PullRequestReviewComment[]>>({}).pipe(Atom.keepAlive)
 const diffCommentsLoadedAtom = Atom.make<Record<string, "loading" | "ready">>({}).pipe(Atom.keepAlive)
-const pullRequestConversationAtom = Atom.make<Record<string, readonly PullRequestConversationItem[]>>({}).pipe(Atom.keepAlive)
-const pullRequestConversationLoadedAtom = Atom.make<Record<string, "loading" | "ready">>({}).pipe(Atom.keepAlive)
+const pullRequestCommentsAtom = Atom.make<Record<string, readonly PullRequestComment[]>>({}).pipe(Atom.keepAlive)
+const pullRequestCommentsLoadedAtom = Atom.make<Record<string, "loading" | "ready">>({}).pipe(Atom.keepAlive)
 const pullRequestDiffCacheAtom = Atom.make<Record<string, PullRequestDiffState>>({}).pipe(Atom.keepAlive)
 
 const activeModalAtom = Atom.make<Modal>(initialModal)
@@ -442,11 +442,11 @@ const pullRequestDiffAtom = Atom.family((key: string) => {
 	const { repository, number } = parsePullRequestDiffAtomKey(key)
 	return githubRuntime.atom(GitHubService.use((github) => github.getPullRequestDiff(repository, number)))
 })
+const listPullRequestReviewCommentsAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
+	GitHubService.use((github) => github.listPullRequestReviewComments(input.repository, input.number)),
+)
 const listPullRequestCommentsAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
 	GitHubService.use((github) => github.listPullRequestComments(input.repository, input.number)),
-)
-const listPullRequestConversationAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
-	GitHubService.use((github) => github.listPullRequestConversation(input.repository, input.number)),
 )
 const getPullRequestMergeInfoAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
 	GitHubService.use((github) => github.getPullRequestMergeInfo(input.repository, input.number)),
@@ -643,8 +643,8 @@ export const App = () => {
 	const [diffCommentRangeStartIndex, setDiffCommentRangeStartIndex] = useAtom(diffCommentRangeStartIndexAtom)
 	const [diffCommentThreads, setDiffCommentThreads] = useAtom(diffCommentThreadsAtom)
 	const setDiffCommentsLoaded = useAtomSet(diffCommentsLoadedAtom)
-	const setPullRequestConversation = useAtomSet(pullRequestConversationAtom)
-	const setPullRequestConversationLoaded = useAtomSet(pullRequestConversationLoadedAtom)
+	const setPullRequestComments = useAtomSet(pullRequestCommentsAtom)
+	const setPullRequestCommentsLoaded = useAtomSet(pullRequestCommentsLoadedAtom)
 	const setPullRequestDiffCache = useAtomSet(pullRequestDiffCacheAtom)
 	const [activeModal, setActiveModal] = useAtom(activeModalAtom)
 	const [themeId, setThemeId] = useAtom(themeIdAtom)
@@ -718,8 +718,8 @@ export const App = () => {
 	const addPullRequestLabel = useAtomSet(addPullRequestLabelAtom, { mode: "promise" })
 	const removePullRequestLabel = useAtomSet(removePullRequestLabelAtom, { mode: "promise" })
 	const toggleDraftStatus = useAtomSet(toggleDraftAtom, { mode: "promise" })
+	const listPullRequestReviewComments = useAtomSet(listPullRequestReviewCommentsAtom, { mode: "promise" })
 	const listPullRequestComments = useAtomSet(listPullRequestCommentsAtom, { mode: "promise" })
-	const listPullRequestConversation = useAtomSet(listPullRequestConversationAtom, { mode: "promise" })
 	const getPullRequestMergeInfo = useAtomSet(getPullRequestMergeInfoAtom, { mode: "promise" })
 	const getRepositoryMergeMethods = useAtomSet(getRepositoryMergeMethodsAtom, { mode: "promise" })
 	const mergePullRequest = useAtomSet(mergePullRequestAtom, { mode: "promise" })
@@ -808,8 +808,8 @@ export const App = () => {
 	const visibleGroups = useAtomValue(visibleGroupsAtom)
 	const visiblePullRequests = useAtomValue(visiblePullRequestsAtom)
 	const selectedPullRequest = useAtomValue(selectedPullRequestAtom)
-	const pullRequestConversation = useAtomValue(pullRequestConversationAtom)
-	const pullRequestConversationLoaded = useAtomValue(pullRequestConversationLoadedAtom)
+	const pullRequestComments = useAtomValue(pullRequestCommentsAtom)
+	const pullRequestCommentsLoaded = useAtomValue(pullRequestCommentsLoadedAtom)
 	const selectedRepository = viewRepository(activeView)
 	const activeViews = activePullRequestViews(activeView)
 	const currentQueueCacheKey = viewCacheKey(activeView)
@@ -832,8 +832,8 @@ export const App = () => {
 	)
 	const selectedPullRequestRowIndex = pullRequestListRowIndex(pullRequestListRows, selectedPullRequest?.url ?? null)
 	const selectedDiffKey = useAtomValue(selectedDiffKeyAtom)
-	const selectedConversationItems = selectedDiffKey ? (pullRequestConversation[selectedDiffKey] ?? []) : []
-	const selectedConversationStatus: DetailConversationStatus = selectedDiffKey ? (pullRequestConversationLoaded[selectedDiffKey] ?? "idle") : "idle"
+	const selectedConversationItems = selectedDiffKey ? (pullRequestComments[selectedDiffKey] ?? []) : []
+	const selectedCommentsStatus: DetailCommentsStatus = selectedDiffKey ? (pullRequestCommentsLoaded[selectedDiffKey] ?? "idle") : "idle"
 	const selectedDiffState = useAtomValue(selectedDiffStateAtom)
 	const effectiveDiffRenderView = contentWidth >= 100 ? diffRenderView : "unified"
 	const readyDiffFiles = useMemo(
@@ -948,8 +948,8 @@ export const App = () => {
 		setPullRequestOverrides({})
 		if (options.resetTransientState) {
 			setRecentlyCompletedPullRequests({})
-			setPullRequestConversation({})
-			setPullRequestConversationLoaded({})
+			setPullRequestComments({})
+			setPullRequestCommentsLoaded({})
 		}
 		if (message) {
 			setNotice(null)
@@ -1061,19 +1061,19 @@ export const App = () => {
 	}
 	const loadPullRequestConversation = (pullRequest: PullRequestItem, force = false) => {
 		const key = pullRequestDiffKey(pullRequest)
-		const previousLoadState = registry.get(pullRequestConversationLoadedAtom)[key]
+		const previousLoadState = registry.get(pullRequestCommentsLoadedAtom)[key]
 		if (!force && previousLoadState) return
 		const generation = refreshGenerationRef.current
-		setPullRequestConversationLoaded((current) => ({ ...current, [key]: "loading" }))
-		void listPullRequestConversation({ repository: pullRequest.repository, number: pullRequest.number })
+		setPullRequestCommentsLoaded((current) => ({ ...current, [key]: "loading" }))
+		void listPullRequestComments({ repository: pullRequest.repository, number: pullRequest.number })
 			.then((items) => {
 				if (generation !== refreshGenerationRef.current) return
-				setPullRequestConversation((current) => ({ ...current, [key]: items }))
-				setPullRequestConversationLoaded((current) => ({ ...current, [key]: "ready" }))
+				setPullRequestComments((current) => ({ ...current, [key]: items }))
+				setPullRequestCommentsLoaded((current) => ({ ...current, [key]: "ready" }))
 			})
 			.catch((error) => {
 				if (generation !== refreshGenerationRef.current) return
-				setPullRequestConversationLoaded((current) => {
+				setPullRequestCommentsLoaded((current) => {
 					if (previousLoadState === "ready") return { ...current, [key]: previousLoadState }
 					const next = { ...current }
 					delete next[key]
@@ -1374,7 +1374,7 @@ export const App = () => {
 		const previousLoadState = registry.get(diffCommentsLoadedAtom)[key]
 		if (!force && previousLoadState) return
 		setDiffCommentsLoaded((current) => ({ ...current, [key]: "loading" }))
-		void listPullRequestComments({ repository: pullRequest.repository, number: pullRequest.number })
+		void listPullRequestReviewComments({ repository: pullRequest.repository, number: pullRequest.number })
 			.then((comments) => {
 				setDiffCommentsLoaded((current) => ({ ...current, [key]: "ready" }))
 				setDiffCommentThreads((current) => {
@@ -2784,18 +2784,18 @@ export const App = () => {
 	const fullscreenBodyLines = Math.max(8, terminalHeight - 8)
 	const fullscreenDetailHeaderHeight = getDetailHeaderHeight(selectedPullRequest, contentWidth, isWideLayout)
 	const fullscreenDetailBodyViewportHeight = Math.max(1, wideBodyHeight - fullscreenDetailHeaderHeight)
-	const fullscreenDetailBodyHeight = getScrollableDetailBodyHeight(selectedPullRequest, fullscreenContentWidth, selectedConversationItems, selectedConversationStatus)
+	const fullscreenDetailBodyHeight = getScrollableDetailBodyHeight(selectedPullRequest, fullscreenContentWidth, selectedConversationItems, selectedCommentsStatus)
 	const fullscreenDetailBodyScrollable = fullscreenDetailBodyHeight > fullscreenDetailBodyViewportHeight
 	const wideDetailHeaderHeight = getDetailHeaderHeight(selectedPullRequest, rightPaneWidth, true)
 	const wideDetailBodyViewportHeight = Math.max(1, wideBodyHeight - wideDetailHeaderHeight)
-	const wideDetailBodyHeight = getScrollableDetailBodyHeight(selectedPullRequest, rightContentWidth, selectedConversationItems, selectedConversationStatus)
+	const wideDetailBodyHeight = getScrollableDetailBodyHeight(selectedPullRequest, rightContentWidth, selectedConversationItems, selectedCommentsStatus)
 	const wideDetailBodyScrollable = wideDetailBodyHeight > wideDetailBodyViewportHeight
 	const narrowDetailsPaneHeight = getDetailsPaneHeight({
 		pullRequest: selectedPullRequest,
 		contentWidth: fullscreenContentWidth,
 		paneWidth: contentWidth,
-		conversationItems: selectedConversationItems,
-		conversationStatus: selectedConversationStatus,
+		comments: selectedConversationItems,
+		commentsStatus: selectedCommentsStatus,
 	})
 	const narrowPullRequestListHeight = Math.max(1, wideBodyHeight - narrowDetailsPaneHeight - 1)
 	const widePullRequestListNeedsScroll = pullRequestStatus === "ready" && pullRequestListRows.length > wideBodyHeight
@@ -2807,8 +2807,8 @@ export const App = () => {
 				paneWidth: rightPaneWidth,
 				showChecks: true,
 				contentWidth: rightContentWidth,
-				conversationItems: selectedConversationItems,
-				conversationStatus: selectedConversationStatus,
+				comments: selectedConversationItems,
+				commentsStatus: selectedCommentsStatus,
 				bodyScrollTop: detailPreviewScrollTop,
 				bodyViewportHeight: wideDetailBodyViewportHeight,
 			})
@@ -2942,8 +2942,8 @@ export const App = () => {
 									contentWidth={fullscreenContentWidth}
 									bodyLines={fullscreenBodyLines}
 									bodyLineLimit={DETAIL_BODY_SCROLL_LIMIT}
-									conversationItems={selectedConversationItems}
-									conversationStatus={selectedConversationStatus}
+									comments={selectedConversationItems}
+									commentsStatus={selectedCommentsStatus}
 									loadingIndicator={loadingIndicator}
 									themeId={themeId}
 									onLinkOpen={openLinkInBrowser}
@@ -2992,8 +2992,8 @@ export const App = () => {
 										contentWidth={rightContentWidth}
 										bodyLines={wideDetailLines}
 										bodyLineLimit={DETAIL_BODY_SCROLL_LIMIT}
-										conversationItems={selectedConversationItems}
-										conversationStatus={selectedConversationStatus}
+										comments={selectedConversationItems}
+										commentsStatus={selectedCommentsStatus}
 										loadingIndicator={loadingIndicator}
 										themeId={themeId}
 										onLinkOpen={openLinkInBrowser}
@@ -3016,8 +3016,8 @@ export const App = () => {
 									contentWidth={fullscreenContentWidth}
 									bodyLines={fullscreenBodyLines}
 									bodyLineLimit={DETAIL_BODY_SCROLL_LIMIT}
-									conversationItems={selectedConversationItems}
-									conversationStatus={selectedConversationStatus}
+									comments={selectedConversationItems}
+									commentsStatus={selectedCommentsStatus}
 									loadingIndicator={loadingIndicator}
 									themeId={themeId}
 									onLinkOpen={openLinkInBrowser}
@@ -3044,8 +3044,8 @@ export const App = () => {
 						viewerUsername={username}
 						contentWidth={fullscreenContentWidth}
 						paneWidth={contentWidth}
-						conversationItems={selectedConversationItems}
-						conversationStatus={selectedConversationStatus}
+						comments={selectedConversationItems}
+						commentsStatus={selectedCommentsStatus}
 						placeholderContent={detailPlaceholderContent}
 						loadingIndicator={loadingIndicator}
 						themeId={themeId}
