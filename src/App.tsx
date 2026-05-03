@@ -300,6 +300,7 @@ const pullRequestsAtom = githubRuntime
 		),
 	)
 	.pipe(Atom.keepAlive)
+const wrapIndex = (index: number, length: number) => (length === 0 ? 0 : ((index % length) + length) % length)
 const selectedIndexAtom = Atom.make(0)
 const noticeAtom = Atom.make<string | null>(null)
 const filterQueryAtom = Atom.make("")
@@ -1916,7 +1917,7 @@ export const App = () => {
 			0,
 			filteredThemes.findIndex((theme) => theme.id === themeIdRef.current),
 		)
-		const selectedIndex = Math.max(0, Math.min(filteredThemes.length - 1, currentIndex + delta))
+		const selectedIndex = wrapIndex(currentIndex + delta, filteredThemes.length)
 		if (selectedIndex === currentIndex) return
 		const theme = filteredThemes[selectedIndex]
 		if (theme) previewTheme(theme.id)
@@ -2274,8 +2275,9 @@ export const App = () => {
 	// === Helpers used by the keymap layers ===
 	const moveMergeSelection = (delta: -1 | 1) =>
 		setMergeModal((current) => {
-			const max = Math.max(0, availableMergeActions(mergeModal.info).length - 1)
-			return { ...current, selectedIndex: Math.max(0, Math.min(max, current.selectedIndex + delta)) }
+			const options = availableMergeActions(current.info)
+			const selectedIndex = wrapIndex(current.selectedIndex + delta, options.length)
+			return selectedIndex === current.selectedIndex ? current : { ...current, selectedIndex }
 		})
 	const scrollCommentThread = (delta: number) =>
 		setCommentThreadModal((current) => ({
@@ -2284,23 +2286,23 @@ export const App = () => {
 		}))
 	const moveLabelSelection = (delta: -1 | 1) =>
 		setLabelModal((current) => {
-			const max = Math.max(0, filterLabels(labelModal.availableLabels, labelModal.query).length - 1)
-			return { ...current, selectedIndex: Math.max(0, Math.min(max, current.selectedIndex + delta)) }
+			const filtered = filterLabels(labelModal.availableLabels, labelModal.query)
+			const selectedIndex = wrapIndex(current.selectedIndex + delta, filtered.length)
+			return selectedIndex === current.selectedIndex ? current : { ...current, selectedIndex }
 		})
 	const moveChangedFileSelection = (delta: -1 | 1) =>
 		setChangedFilesModal((current) => {
-			const max = Math.max(0, changedFileResults.length - 1)
-			const selectedIndex = Math.max(0, Math.min(max, current.selectedIndex + delta))
+			const selectedIndex = wrapIndex(current.selectedIndex + delta, changedFileResults.length)
 			return selectedIndex === current.selectedIndex ? current : { ...current, selectedIndex }
 		})
 	const moveSubmitReviewActionSelection = (delta: -1 | 1) =>
 		setSubmitReviewModal((current) => {
-			const max = Math.max(0, submitReviewOptions.length - 1)
-			return { ...current, selectedIndex: Math.max(0, Math.min(max, current.selectedIndex + delta)), error: null }
+			const selectedIndex = wrapIndex(current.selectedIndex + delta, submitReviewOptions.length)
+			return { ...current, selectedIndex, error: null }
 		})
 	const moveCommandPaletteSelection = (delta: -1 | 1) =>
 		setCommandPalette((current) => {
-			const selectedIndex = clampCommandIndex(current.selectedIndex + delta, commandPaletteCommands)
+			const selectedIndex = wrapIndex(current.selectedIndex + delta, commandPaletteCommands.length)
 			return selectedIndex === current.selectedIndex ? current : { ...current, selectedIndex }
 		})
 	const selectCommandPaletteIndex = (index: number) =>
