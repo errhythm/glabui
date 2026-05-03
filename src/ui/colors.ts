@@ -18,6 +18,7 @@ export type ThemeId =
 	| "solarized-light"
 	| "everforest"
 	| "vesper"
+	| "vague"
 	| "ayu"
 	| "ayu-mirage"
 	| "ayu-light"
@@ -984,6 +985,45 @@ const vesperColors: ColorPalette = {
 	},
 }
 
+const vagueColors: ColorPalette = {
+	background: "#141415",
+	modalBackground: "#1c1c24",
+	text: "#cdcdcd",
+	muted: "#606079",
+	separator: "#252530",
+	accent: "#6e94b2",
+	inlineCode: "#e8b589",
+	error: "#d8647e",
+	selectedBg: "#333738",
+	selectedText: "#cdcdcd",
+	count: "#e0a363",
+	status: {
+		draft: "#f3be7c",
+		approved: "#7fa563",
+		changes: "#d8647e",
+		review: "#7e98e8",
+		none: "#606079",
+		passing: "#7fa563",
+		pending: "#f3be7c",
+		failing: "#d8647e",
+	},
+	repos: {
+		opencode: "#6e94b2",
+		"effect-smol": "#7fa563",
+		"opencode-console": "#bb9dbd",
+		opencontrol: "#e0a363",
+		default: "#b4d4cf",
+	},
+	diff: {
+		addedBg: "#293125",
+		removedBg: "#3b242a",
+		contextBg: "transparent",
+		lineNumberBg: "#1c1c24",
+		addedLineNumberBg: "#253020",
+		removedLineNumberBg: "#352126",
+	},
+}
+
 // Ayu theme - Modern bright theme with dark, mirage, and light variants
 const ayuColors: ColorPalette = {
 	background: "#0f1419",
@@ -1202,6 +1242,7 @@ export const themeDefinitions: readonly ThemeDefinition[] = [
 	{ id: "solarized-light", name: "Solarized Light", description: "Warm beige base with the same calibrated accent colors", tone: "light", colors: solarizedLightColors },
 	{ id: "everforest", name: "Everforest", description: "Soft green-gray forest tones with warm highlights", tone: "dark", colors: everforestColors },
 	{ id: "vesper", name: "Vesper", description: "Minimal black surfaces with peach and aqua accents", tone: "dark", colors: vesperColors },
+	{ id: "vague", name: "Vague", description: "Muted low-contrast charcoal with soft editor accents", tone: "dark", colors: vagueColors },
 	{ id: "ayu", name: "Ayu", description: "Modern bright dark theme with blue and orange accents", tone: "dark", colors: ayuColors },
 	{ id: "ayu-mirage", name: "Ayu Mirage", description: "Medium-contrast blue-gray with vibrant syntax colors", tone: "dark", colors: ayuMirageColors },
 	{ id: "ayu-light", name: "Ayu Light", description: "Clean light theme with crisp blue and orange accents", tone: "light", colors: ayuLightColors },
