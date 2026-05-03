@@ -14,14 +14,16 @@ const PLACEHOLDER_KEY = "__placeholder_new_comment"
 export const COMMENTS_VIEW_PLACEHOLDER_ROWS = 1
 export const commentsViewRowCount = (count: number) => count + COMMENTS_VIEW_PLACEHOLDER_ROWS
 
+// Cap visual indent so deep threads don't run off the right of the pane.
+const MAX_INDENT = 3
+
 interface CommentBlock {
 	readonly key: string
 	readonly comment: PullRequestComment | null
 	readonly meta: CommentDisplayLine
 	readonly body: readonly CommentDisplayLine[]
 	readonly height: number
-	// Replies are indented one level under their thread root; null otherwise.
-	readonly indent: 0 | 1
+	readonly indent: number
 	readonly isPlaceholder: boolean
 }
 
@@ -39,85 +41,86 @@ const reviewContextGroups = (comment: PullRequestComment, width: number): readon
 // likely parent so the reply visually nests instead of falling to the bottom.
 const QUOTE_HEADER_RE = /^>\s*@(\S+)\s+wrote:\s*\n((?:>[^\n]*(?:\n|$))+)/
 
+// Whitespace-tolerant compare: collapse blank lines and trailing spaces so the
+// quote text we extracted from a child matches its parent's body even when the
+// parent has its own blank line between the quote header and the reply text.
+const collapseWhitespace = (text: string): string =>
+	text
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.filter((line) => line.length > 0)
+		.join("\n")
+		.trim()
+
 const issueQuoteParent = (comment: PullRequestComment & { readonly _tag: "comment" }, candidates: readonly PullRequestComment[]): string | null => {
 	const match = QUOTE_HEADER_RE.exec(comment.body)
 	if (!match) return null
 	const author = match[1] ?? ""
-	const quoted = (match[2] ?? "")
-		.split("\n")
-		.map((line) => line.replace(/^>\s?/, "").trimEnd())
-		.filter((line) => line.length > 0)
-		.join("\n")
-		.trim()
+	const quoted = collapseWhitespace(
+		(match[2] ?? "")
+			.split("\n")
+			.map((line) => line.replace(/^>\s?/, ""))
+			.join("\n"),
+	)
 	if (quoted.length === 0) return null
 	for (const candidate of candidates) {
 		if (candidate.id === comment.id) continue
 		if (candidate._tag !== "comment") continue
 		if (candidate.author !== author) continue
-		const body = candidate.body.trim()
+		const body = collapseWhitespace(candidate.body)
 		if (body.length === 0) continue
 		if (body === quoted || body.startsWith(quoted) || quoted.startsWith(body)) return candidate.id
 	}
 	return null
 }
 
+export interface OrderedComment {
+	readonly comment: PullRequestComment
+	readonly indent: number
+}
+
 // Order comments so replies sit right after their parent: review threads via
 // `inReplyTo`, issue-comment quote replies via the heuristic above. Roots
-// preserve overall createdAt order.
-const orderForThreads = (comments: readonly PullRequestComment[]): readonly { readonly comment: PullRequestComment; readonly indent: 0 | 1 }[] => {
-	const reviewById = new Map<string, PullRequestComment & { readonly _tag: "review-comment" }>()
-	for (const comment of comments) {
-		if (comment._tag === "review-comment") reviewById.set(comment.id, comment)
+// preserve overall createdAt order; replies render at the parent's depth + 1
+// (capped at MAX_INDENT so deep chains don't run off the pane).
+export const orderCommentsForDisplay = (comments: readonly PullRequestComment[]): readonly OrderedComment[] => {
+	const byId = new Map<string, PullRequestComment>()
+	for (const comment of comments) byId.set(comment.id, comment)
+
+	const parentIdFor = (comment: PullRequestComment): string | null => {
+		if (comment._tag === "review-comment") return comment.inReplyTo
+		return issueQuoteParent(comment, comments)
 	}
 
-	const reviewRootIdFor = (comment: PullRequestComment & { readonly _tag: "review-comment" }): string => {
-		let cursor: (PullRequestComment & { readonly _tag: "review-comment" }) | undefined = comment
-		const seen = new Set<string>()
-		while (cursor && cursor.inReplyTo) {
-			if (seen.has(cursor.id)) break
-			seen.add(cursor.id)
-			const parent = reviewById.get(cursor.inReplyTo)
-			if (!parent) break
-			cursor = parent
-		}
-		return cursor?.id ?? comment.id
-	}
-
-	const repliesByRoot = new Map<string, PullRequestComment[]>()
+	const childrenByParent = new Map<string, PullRequestComment[]>()
 	const roots: PullRequestComment[] = []
 	for (const comment of comments) {
-		if (comment._tag === "review-comment") {
-			const rootId = reviewRootIdFor(comment)
-			if (rootId === comment.id) roots.push(comment)
-			else {
-				const list = repliesByRoot.get(rootId) ?? []
-				list.push(comment)
-				repliesByRoot.set(rootId, list)
-			}
+		const parentId = parentIdFor(comment)
+		if (parentId && byId.has(parentId)) {
+			const list = childrenByParent.get(parentId) ?? []
+			list.push(comment)
+			childrenByParent.set(parentId, list)
 		} else {
-			const parentId = issueQuoteParent(comment, comments)
-			if (parentId) {
-				const list = repliesByRoot.get(parentId) ?? []
-				list.push(comment)
-				repliesByRoot.set(parentId, list)
-			} else {
-				roots.push(comment)
-			}
+			roots.push(comment)
 		}
 	}
 
 	const byTime = (left: PullRequestComment, right: PullRequestComment) => (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0)
-	const ordered: { readonly comment: PullRequestComment; readonly indent: 0 | 1 }[] = []
-	for (const root of roots) {
-		ordered.push({ comment: root, indent: 0 })
-		const replies = (repliesByRoot.get(root.id) ?? []).slice().sort(byTime)
-		for (const reply of replies) ordered.push({ comment: reply, indent: 1 })
+	const ordered: { readonly comment: PullRequestComment; readonly indent: number }[] = []
+	const visited = new Set<string>()
+	const visit = (comment: PullRequestComment, indent: number): void => {
+		if (visited.has(comment.id)) return
+		visited.add(comment.id)
+		ordered.push({ comment, indent: Math.min(indent, MAX_INDENT) })
+		const children = (childrenByParent.get(comment.id) ?? []).slice().sort(byTime)
+		for (const child of children) visit(child, indent + 1)
 	}
+	for (const root of roots) visit(root, 0)
 	return ordered
 }
 
 const buildBlocks = (comments: readonly PullRequestComment[], width: number): readonly CommentBlock[] =>
-	orderForThreads(comments).map(({ comment, indent }) => {
+	orderCommentsForDisplay(comments).map(({ comment, indent }) => {
 		const usableWidth = Math.max(8, width - indent * REPLY_INDENT_COLS)
 		// Don't repeat the file path for replies — the thread root carries it.
 		const groups = indent > 0 ? [] : reviewContextGroups(comment, usableWidth)
@@ -152,8 +155,8 @@ const blockOffsets = (blocks: readonly CommentBlock[]): readonly number[] => {
 // anchor — and replies indent under the thread root.
 const REPLY_INDENT_COLS = 4
 
-const withReplyIndent = (segments: readonly CommentSegment[], indent: 0 | 1): readonly CommentSegment[] =>
-	indent === 0 ? segments : [{ text: " ".repeat(REPLY_INDENT_COLS), fg: colors.muted }, ...segments]
+const withReplyIndent = (segments: readonly CommentSegment[], indent: number): readonly CommentSegment[] =>
+	indent === 0 ? segments : [{ text: " ".repeat(indent * REPLY_INDENT_COLS), fg: colors.muted }, ...segments]
 
 export const CommentsPane = ({
 	pullRequest,
@@ -241,17 +244,16 @@ export const CommentsPane = ({
 							const isSelected = index === safeIndex
 							if (block.isPlaceholder) {
 								return (
-									<TextLine key={block.key} bg={isSelected ? colors.selectedBg : undefined}>
-										<span fg={isSelected ? colors.selectedText : colors.muted}>+ Add new comment</span>
+									<TextLine key={block.key}>
+										<span fg={isSelected ? colors.accent : colors.muted} attributes={isSelected ? 1 : 0}>
+											+ Add new comment
+										</span>
 									</TextLine>
 								)
 							}
 							return (
 								<box key={block.key} flexDirection="column">
-									<CommentSegmentsLine
-										segments={withReplyIndent(block.meta.segments, block.indent)}
-										{...(isSelected ? { bg: colors.selectedBg, fgOverride: colors.selectedText } : {})}
-									/>
+									<CommentSegmentsLine segments={withReplyIndent(block.meta.segments, block.indent)} {...(isSelected ? { fgOverride: colors.accent, boldAll: true } : {})} />
 									{block.body.map((line) => (
 										<CommentSegmentsLine key={line.key} segments={withReplyIndent(line.segments, block.indent)} />
 									))}

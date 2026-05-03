@@ -150,7 +150,7 @@ import {
 	type ThemeModalState,
 } from "./ui/modals.js"
 import { groupBy, pullRequestMetadataText } from "./ui/pullRequests.js"
-import { CommentsPane, commentsViewRowCount } from "./ui/CommentsPane.js"
+import { CommentsPane, commentsViewRowCount, orderCommentsForDisplay } from "./ui/CommentsPane.js"
 import { PullRequestDiffPane } from "./ui/PullRequestDiffPane.js"
 import { buildPullRequestListRows, pullRequestListRowIndex, PullRequestList } from "./ui/PullRequestList.js"
 import { editSingleLineInput, isSingleLineInputKey, printableKeyText, singleLineText } from "./ui/singleLineInput.js"
@@ -1523,6 +1523,11 @@ export const App = () => {
 		setCommentsViewActive(false)
 	}
 
+	// j/k navigates the *visual* (threaded) order, not the raw load order — so
+	// the comment under the cursor is the one immediately below the previously
+	// highlighted row, regardless of where it lives in the flat array.
+	const orderedComments = orderCommentsForDisplay(selectedComments)
+	const selectedOrderedComment = orderedComments[commentsViewSelection]?.comment ?? null
 	const commentsRowCount = commentsViewRowCount(selectedComments.length)
 	const moveCommentsSelection = (delta: number) => {
 		setCommentsViewSelection((current) => {
@@ -1545,7 +1550,7 @@ export const App = () => {
 	}
 
 	const openSelectedCommentInBrowser = () => {
-		const comment = selectedComments[commentsViewSelection]
+		const comment = selectedOrderedComment
 		if (!comment?.url) return
 		void openUrl(comment.url)
 			.then(() => flashNotice(`Opened ${comment.url}`))
@@ -1881,7 +1886,7 @@ export const App = () => {
 
 	const openReplyToSelectedComment = () => {
 		if (!selectedPullRequest) return
-		const comment = selectedComments[commentsViewSelection]
+		const comment = selectedOrderedComment
 		if (!comment) {
 			flashNotice("No comment selected")
 			return

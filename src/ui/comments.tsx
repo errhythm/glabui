@@ -146,15 +146,17 @@ export const CommentSegmentsLine = ({
 	hoveredUrl,
 	bg,
 	fgOverride,
+	boldAll,
 }: {
 	segments: readonly CommentSegment[]
 	hoveredUrl?: string | null
 	bg?: string
 	fgOverride?: string
+	boldAll?: boolean
 }) => (
 	<TextLine bg={bg}>
 		{segments.map((segment, index) => {
-			const attributes = (segment.bold ? TextAttributes.BOLD : 0) | (segment.underline ? TextAttributes.UNDERLINE : 0)
+			const attributes = (segment.bold || boldAll ? TextAttributes.BOLD : 0) | (segment.underline ? TextAttributes.UNDERLINE : 0)
 			const isHovered = segment.url !== undefined && segment.url === hoveredUrl
 			const fg = fgOverride ?? (isHovered ? colors.accent : segment.fg)
 			return (
