@@ -98,6 +98,8 @@ export const PullRequestDiffPane = ({
 	selectedCommentLabel,
 	selectedCommentThread,
 	onSelectCommentLine,
+	onHoverCommentLine,
+	onClearHoverCommentLine,
 	themeId,
 }: {
 	pullRequest: PullRequestItem | null
@@ -116,6 +118,8 @@ export const PullRequestDiffPane = ({
 	selectedCommentLabel: string | null
 	selectedCommentThread: readonly PullRequestReviewComment[]
 	onSelectCommentLine: (renderLine: number, side: DiffCommentSide | null) => void
+	onHoverCommentLine: (renderLine: number, side: DiffCommentSide | null) => void
+	onClearHoverCommentLine: () => void
 	themeId: ThemeId
 }) => {
 	const readyFiles = diffState?._tag === "Ready" ? diffState.files : []
@@ -189,22 +193,41 @@ export const PullRequestDiffPane = ({
 	}
 	const stickyCommentColor = selectedCommentAnchor?.side === "LEFT" ? colors.status.failing : colors.status.passing
 	const diffLineNumberFg = lineNumberTextColor(colors.diff.lineNumberBg, colors.text)
+	const diffMouseTarget = (scrollBox: ScrollBoxRenderable, event: MouseEvent) => {
+		const localY = event.y - scrollBox.viewport.y
+		if (localY < 0 || localY >= scrollBox.viewport.height) return null
+		const localX = event.x - scrollBox.viewport.x
+		const side: DiffCommentSide | null = view === "split" ? (localX < Math.floor(paneWidth / 2) ? "LEFT" : "RIGHT") : null
+		return { renderLine: Math.max(0, Math.floor(scrollBox.scrollTop + localY)), side }
+	}
 	const handleDiffMouseDown = function (this: ScrollBoxRenderable, event: MouseEvent) {
 		if (event.button !== 0) return
-		const localY = event.y - this.viewport.y
-		if (localY < 0 || localY >= this.viewport.height) return
-		const localX = event.x - this.viewport.x
-		const side = view === "split" ? (localX < Math.floor(paneWidth / 2) ? "LEFT" : "RIGHT") : null
-		onSelectCommentLine(Math.max(0, Math.floor(this.scrollTop + localY)), side)
+		const target = diffMouseTarget(this, event)
+		if (!target) return
+		onSelectCommentLine(target.renderLine, target.side)
 		event.preventDefault()
 		event.stopPropagation()
+	}
+	const handleDiffMouseMove = function (this: ScrollBoxRenderable, event: MouseEvent) {
+		const target = diffMouseTarget(this, event)
+		if (target) onHoverCommentLine(target.renderLine, target.side)
+		else onClearHoverCommentLine()
 	}
 
 	return (
 		<box height={height} flexDirection="column">
 			<DiffPaneHeader pullRequest={pullRequest} paneWidth={paneWidth} />
 			<Divider width={paneWidth} />
-			<scrollbox ref={scrollRef} focusable={false} flexGrow={1} scrollY scrollX={false} onMouseDown={handleDiffMouseDown}>
+			<scrollbox
+				ref={scrollRef}
+				focusable={false}
+				flexGrow={1}
+				scrollY
+				scrollX={false}
+				onMouseDown={handleDiffMouseDown}
+				onMouseMove={handleDiffMouseMove}
+				onMouseOut={onClearHoverCommentLine}
+			>
 				{stackedFiles.map((stackedFile) => (
 					<box key={`${pullRequest.url}-${stackedFile.index}-${view}-${wrapMode}`} flexDirection="column" flexShrink={0}>
 						{stackedFile.index > 0 ? <Divider width={paneWidth} /> : null}
