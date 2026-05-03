@@ -1052,10 +1052,8 @@ export const ThemeModal = ({
 			footer={
 				<HintRow
 					items={[
-						{ key: "↑↓", label: "preview" },
-						{ key: "tab", label: `show ${nextToneLabel}` },
+						{ key: "tab", label: `${nextToneLabel} mode` },
 						{ key: "/", label: "filter" },
-						{ key: "enter", label: "select" },
 						{ key: "esc", label: "cancel" },
 					]}
 				/>
