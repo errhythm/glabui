@@ -1053,7 +1053,7 @@ export const ThemeModal = ({
 				<HintRow
 					items={[
 						{ key: "tab", label: `${nextToneLabel} mode` },
-						{ key: "/", label: "filter" },
+						{ key: "enter", label: "select" },
 						{ key: "esc", label: "cancel" },
 					]}
 				/>
