@@ -3,14 +3,19 @@ export type ThemeId =
 	| "ghui"
 	| "tokyo-night"
 	| "catppuccin"
+	| "catppuccin-latte"
 	| "rose-pine"
+	| "rose-pine-dawn"
 	| "gruvbox"
+	| "gruvbox-light"
 	| "nord"
 	| "dracula"
 	| "kanagawa"
 	| "one-dark"
+	| "one-light"
 	| "monokai"
 	| "solarized-dark"
+	| "solarized-light"
 	| "everforest"
 	| "vesper"
 	| "opencode"
@@ -384,6 +389,45 @@ const catppuccinColors: ColorPalette = {
 	},
 }
 
+const catppuccinLatteColors: ColorPalette = {
+	background: "#eff1f5",
+	modalBackground: "#e6e9ef",
+	text: "#4c4f69",
+	muted: "#8c8fa1",
+	separator: "#ccd0da",
+	accent: "#8839ef",
+	inlineCode: "#ea76cb",
+	error: "#d20f39",
+	selectedBg: "#dce0e8",
+	selectedText: "#4c4f69",
+	count: "#fe640b",
+	status: {
+		draft: "#df8e1d",
+		approved: "#40a02b",
+		changes: "#d20f39",
+		review: "#1e66f5",
+		none: "#8c8fa1",
+		passing: "#40a02b",
+		pending: "#df8e1d",
+		failing: "#d20f39",
+	},
+	repos: {
+		opencode: "#1e66f5",
+		"effect-smol": "#40a02b",
+		"opencode-console": "#ea76cb",
+		opencontrol: "#fe640b",
+		default: "#209fb5",
+	},
+	diff: {
+		addedBg: "#d9f0d1",
+		removedBg: "#f5d8d6",
+		contextBg: "transparent",
+		lineNumberBg: "#e6e9ef",
+		addedLineNumberBg: "#d1ebd0",
+		removedLineNumberBg: "#f0dcd9",
+	},
+}
+
 const rosePineColors: ColorPalette = {
 	background: "#191724",
 	modalBackground: "#26233a",
@@ -423,6 +467,45 @@ const rosePineColors: ColorPalette = {
 	},
 }
 
+const rosePineDawnColors: ColorPalette = {
+	background: "#faf4ed",
+	modalBackground: "#f2e9e1",
+	text: "#575279",
+	muted: "#9893a5",
+	separator: "#d5c6d3",
+	accent: "#907aa9",
+	inlineCode: "#ea9d34",
+	error: "#b4637a",
+	selectedBg: "#e6dfdb",
+	selectedText: "#575279",
+	count: "#d7827a",
+	status: {
+		draft: "#ea9d34",
+		approved: "#56949f",
+		changes: "#b4637a",
+		review: "#286983",
+		none: "#9893a5",
+		passing: "#56949f",
+		pending: "#ea9d34",
+		failing: "#b4637a",
+	},
+	repos: {
+		opencode: "#286983",
+		"effect-smol": "#56949f",
+		"opencode-console": "#907aa9",
+		opencontrol: "#ea9d34",
+		default: "#d7827a",
+	},
+	diff: {
+		addedBg: "#e3f0e8",
+		removedBg: "#f5e1e0",
+		contextBg: "transparent",
+		lineNumberBg: "#f2e9e1",
+		addedLineNumberBg: "#dcede3",
+		removedLineNumberBg: "#f0dede",
+	},
+}
+
 const gruvboxColors: ColorPalette = {
 	background: "#282828",
 	modalBackground: "#3c3836",
@@ -459,6 +542,45 @@ const gruvboxColors: ColorPalette = {
 		lineNumberBg: "#1d2021",
 		addedLineNumberBg: "#2f331e",
 		removedLineNumberBg: "#382726",
+	},
+}
+
+const gruvboxLightColors: ColorPalette = {
+	background: "#fbf1c7",
+	modalBackground: "#ebdbb2",
+	text: "#3c3836",
+	muted: "#928374",
+	separator: "#d5c4a1",
+	accent: "#b57614",
+	inlineCode: "#8f3f71",
+	error: "#cc241d",
+	selectedBg: "#d5c4a1",
+	selectedText: "#3c3836",
+	count: "#af3a03",
+	status: {
+		draft: "#b57614",
+		approved: "#79740e",
+		changes: "#cc241d",
+		review: "#076678",
+		none: "#928374",
+		passing: "#79740e",
+		pending: "#b57614",
+		failing: "#cc241d",
+	},
+	repos: {
+		opencode: "#076678",
+		"effect-smol": "#79740e",
+		"opencode-console": "#8f3f71",
+		opencontrol: "#af3a03",
+		default: "#427b58",
+	},
+	diff: {
+		addedBg: "#e6f3d8",
+		removedBg: "#f7e1d6",
+		contextBg: "transparent",
+		lineNumberBg: "#ebdbb2",
+		addedLineNumberBg: "#dbebd1",
+		removedLineNumberBg: "#f0ddd6",
 	},
 }
 
@@ -618,6 +740,45 @@ const oneDarkColors: ColorPalette = {
 	},
 }
 
+const oneLightColors: ColorPalette = {
+	background: "#fafafa",
+	modalBackground: "#f0f0f0",
+	text: "#383a42",
+	muted: "#a0a1a7",
+	separator: "#d5d5d5",
+	accent: "#4078f2",
+	inlineCode: "#a626a4",
+	error: "#e45649",
+	selectedBg: "#e5e5e6",
+	selectedText: "#383a42",
+	count: "#c18401",
+	status: {
+		draft: "#c18401",
+		approved: "#50a14f",
+		changes: "#e45649",
+		review: "#4078f2",
+		none: "#a0a1a7",
+		passing: "#50a14f",
+		pending: "#c18401",
+		failing: "#e45649",
+	},
+	repos: {
+		opencode: "#4078f2",
+		"effect-smol": "#50a14f",
+		"opencode-console": "#a626a4",
+		opencontrol: "#c18401",
+		default: "#0184bc",
+	},
+	diff: {
+		addedBg: "#e1f0d8",
+		removedBg: "#f5e1df",
+		contextBg: "transparent",
+		lineNumberBg: "#f0f0f0",
+		addedLineNumberBg: "#d5ebd4",
+		removedLineNumberBg: "#f0dedc",
+	},
+}
+
 const monokaiColors: ColorPalette = {
 	background: "#272822",
 	modalBackground: "#383830",
@@ -693,6 +854,45 @@ const solarizedDarkColors: ColorPalette = {
 		lineNumberBg: "#073642",
 		addedLineNumberBg: "#10372b",
 		removedLineNumberBg: "#362429",
+	},
+}
+
+const solarizedLightColors: ColorPalette = {
+	background: "#fdf6e3",
+	modalBackground: "#eee8d5",
+	text: "#657b83",
+	muted: "#93a1a1",
+	separator: "#d5cdb8",
+	accent: "#268bd2",
+	inlineCode: "#2aa198",
+	error: "#dc322f",
+	selectedBg: "#e4ddc9",
+	selectedText: "#073642",
+	count: "#cb4b16",
+	status: {
+		draft: "#b58900",
+		approved: "#859900",
+		changes: "#dc322f",
+		review: "#268bd2",
+		none: "#93a1a1",
+		passing: "#859900",
+		pending: "#b58900",
+		failing: "#dc322f",
+	},
+	repos: {
+		opencode: "#268bd2",
+		"effect-smol": "#859900",
+		"opencode-console": "#d33682",
+		opencontrol: "#cb4b16",
+		default: "#2aa198",
+	},
+	diff: {
+		addedBg: "#e7f2d5",
+		removedBg: "#f5e1d7",
+		contextBg: "transparent",
+		lineNumberBg: "#f2e9d8",
+		addedLineNumberBg: "#e3edd7",
+		removedLineNumberBg: "#f0e0d8",
 	},
 }
 
@@ -779,14 +979,19 @@ export const themeDefinitions: readonly ThemeDefinition[] = [
 	{ id: "ghui", name: "GHUI", description: "Warm parchment accents on a deep slate background", colors: ghuiColors },
 	{ id: "tokyo-night", name: "Tokyo Night", description: "Cool indigo surfaces with neon editor accents", colors: tokyoNightColors },
 	{ id: "catppuccin", name: "Catppuccin", description: "Mocha lavender, peach, and soft pastel contrast", colors: catppuccinColors },
+	{ id: "catppuccin-latte", name: "Catppuccin Latte", description: "Light frothy cream with pastel lavender and peach", colors: catppuccinLatteColors },
 	{ id: "rose-pine", name: "Rose Pine", description: "Muted rose, pine, and gold on dusky violet", colors: rosePineColors },
+	{ id: "rose-pine-dawn", name: "Rose Pine Dawn", description: "Soft morning light with rose and sage accents", colors: rosePineDawnColors },
 	{ id: "gruvbox", name: "Gruvbox", description: "Retro warm earth tones with punchy semantic accents", colors: gruvboxColors },
+	{ id: "gruvbox-light", name: "Gruvbox Light", description: "Warm parchment background with earthy retro colors", colors: gruvboxLightColors },
 	{ id: "nord", name: "Nord", description: "Arctic blue-gray surfaces with frosty accents", colors: nordColors },
 	{ id: "dracula", name: "Dracula", description: "High-contrast purple, pink, cyan, and green", colors: draculaColors },
 	{ id: "kanagawa", name: "Kanagawa", description: "Ink-wash indigo, wave blues, and autumn accents", colors: kanagawaColors },
 	{ id: "one-dark", name: "One Dark", description: "Atom-style charcoal with clean blue and green accents", colors: oneDarkColors },
+	{ id: "one-light", name: "One Light", description: "Clean light surfaces with balanced blue and green accents", colors: oneLightColors },
 	{ id: "monokai", name: "Monokai", description: "Classic dark olive with electric syntax colors", colors: monokaiColors },
 	{ id: "solarized-dark", name: "Solarized Dark", description: "Low-contrast blue-green base with calibrated accents", colors: solarizedDarkColors },
+	{ id: "solarized-light", name: "Solarized Light", description: "Warm beige base with the same calibrated accent colors", colors: solarizedLightColors },
 	{ id: "everforest", name: "Everforest", description: "Soft green-gray forest tones with warm highlights", colors: everforestColors },
 	{ id: "vesper", name: "Vesper", description: "Minimal black surfaces with peach and aqua accents", colors: vesperColors },
 	{ id: "opencode", name: "OpenCode", description: "Charcoal panels with peach, violet, and blue highlights", colors: opencodeColors },
