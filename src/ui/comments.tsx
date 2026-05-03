@@ -86,15 +86,19 @@ export const commentMetaSegments = ({
 	item,
 	markerLabel,
 	groups = [],
+	marker,
 }: {
 	readonly item: CommentDisplayItem
 	readonly markerLabel?: string | null | undefined
 	readonly groups?: readonly (readonly CommentSegment[])[] | undefined
+	// Override the leading glyph + color (e.g. "↳" in muted for a thread reply).
+	readonly marker?: { readonly text: string; readonly fg: string } | undefined
 }): readonly CommentSegment[] => {
 	const sideColor = commentSideColor(item.side)
 	const timestamp = commentTimestamp(item.createdAt)
+	const m = marker ?? { text: "●", fg: colors.count }
 	const segments: CommentSegment[] = [
-		{ text: "•", fg: colors.count, bold: true },
+		{ text: m.text, fg: m.fg, bold: true },
 		...(markerLabel ? [{ text: ` ${markerLabel}`, fg: sideColor, bold: true }] : []),
 		{ text: " ", fg: colors.muted },
 		{ text: item.author, fg: colors.count, bold: true },
@@ -104,12 +108,14 @@ export const commentMetaSegments = ({
 	return segments
 }
 
+// Body lines indent two columns under the meta line; quotes get a soft '▎ '
+// instead of a chat-bubble '│ '.
 export const commentBodyRows = ({ keyPrefix, body, width }: { readonly keyPrefix: string; readonly body: string; readonly width: number }): readonly CommentDisplayLine[] =>
 	wrapCommentText(body, Math.max(1, width - 2)).map((line, index) => ({
 		key: `${keyPrefix}:body:${index}`,
 		segments: line.quote
-			? [{ text: "│ ", fg: colors.muted }, { text: "▎ ", fg: colors.separator }, ...inlineCommentSegments(line.text, colors.muted)]
-			: [{ text: "│ ", fg: colors.muted }, ...inlineCommentSegments(line.text)],
+			? [{ text: "  ▎ ", fg: colors.separator }, ...inlineCommentSegments(line.text, colors.muted)]
+			: [{ text: "  ", fg: colors.muted }, ...inlineCommentSegments(line.text)],
 	}))
 
 export const commentDisplayRows = ({

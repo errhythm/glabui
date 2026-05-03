@@ -84,10 +84,11 @@ const orderForThreads = (comments: readonly PullRequestComment[]): readonly { re
 
 const buildBlocks = (comments: readonly PullRequestComment[], width: number): readonly CommentBlock[] =>
 	orderForThreads(comments).map(({ comment, indent }) => {
-		const usableWidth = Math.max(8, width - indent * 2)
+		const usableWidth = Math.max(8, width - indent * 4)
 		// Don't repeat the file path for replies — the thread root carries it.
 		const groups = indent > 0 ? [] : reviewContextGroups(comment, usableWidth)
-		const meta: CommentDisplayLine = { key: `${comment.id}:meta`, segments: commentMetaSegments({ item: comment, groups }) }
+		const marker = indent > 0 ? { text: "↳", fg: colors.muted } : undefined
+		const meta: CommentDisplayLine = { key: `${comment.id}:meta`, segments: commentMetaSegments({ item: comment, groups, marker }) }
 		const body = commentBodyRows({ keyPrefix: comment.id, body: comment.body, width: usableWidth })
 		// Reserve 1 spacer line between blocks for breathing room.
 		return { key: comment.id, comment, meta, body, height: 1 + body.length + 1, indent, isPlaceholder: false }
@@ -113,9 +114,13 @@ const blockOffsets = (blocks: readonly CommentBlock[]): readonly number[] => {
 	return offsets
 }
 
-const withIndent = (segments: readonly CommentSegment[], indent: 0 | 1): readonly CommentSegment[] => {
-	const prefix = indent > 0 ? `   ` : ` `
-	return [{ text: prefix, fg: colors.muted }, ...segments]
+// Replies indent four columns under the thread root; top-level rows sit flush
+// with the pane edge (the '●' bullet acts as the visual anchor).
+const replyIndentText = (indent: 0 | 1) => " ".repeat(indent * 4)
+
+const withReplyIndent = (segments: readonly CommentSegment[], indent: 0 | 1): readonly CommentSegment[] => {
+	const text = replyIndentText(indent)
+	return text.length > 0 ? [{ text, fg: colors.muted }, ...segments] : segments
 }
 
 export const CommentsPane = ({
@@ -205,18 +210,18 @@ export const CommentsPane = ({
 							if (block.isPlaceholder) {
 								return (
 									<TextLine key={block.key} bg={isSelected ? colors.selectedBg : undefined}>
-										<span fg={isSelected ? colors.selectedText : colors.muted}> + Add new comment...</span>
+										<span fg={isSelected ? colors.selectedText : colors.muted}>+ Add new comment</span>
 									</TextLine>
 								)
 							}
 							return (
 								<box key={block.key} flexDirection="column">
 									<CommentSegmentsLine
-										segments={withIndent(block.meta.segments, block.indent)}
+										segments={withReplyIndent(block.meta.segments, block.indent)}
 										{...(isSelected ? { bg: colors.selectedBg, fgOverride: colors.selectedText } : {})}
 									/>
 									{block.body.map((line) => (
-										<CommentSegmentsLine key={line.key} segments={withIndent(line.segments, block.indent)} />
+										<CommentSegmentsLine key={line.key} segments={withReplyIndent(line.segments, block.indent)} />
 									))}
 									<PlainLine text="" fg={colors.muted} />
 								</box>
