@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { PullRequestConversationItem, PullRequestItem } from "../src/domain.ts"
-import { getDetailJunctionRows } from "../src/ui/DetailsPane.tsx"
+import { getDetailJunctionRows, truncateConversationPath } from "../src/ui/DetailsPane.tsx"
 
 const pullRequest = (body: string): PullRequestItem => ({
 	repository: "owner/repo",
@@ -23,6 +23,22 @@ const pullRequest = (body: string): PullRequestItem => ({
 	createdAt: new Date("2026-01-01T00:00:00Z"),
 	closedAt: null,
 	url: "https://github.com/owner/repo/pull/1",
+})
+
+describe("truncateConversationPath", () => {
+	test("preserves package and repository segments plus the filename", () => {
+		expect(truncateConversationPath("packages/opencode/src/project/bootstrap-service.ts", 45)).toBe("packages/opencode/…/bootstrap-service.ts")
+	})
+
+	test("keeps useful trailing directories when they fit", () => {
+		expect(truncateConversationPath("packages/opencode/src/project/bootstrap-service.ts", 48)).toBe("packages/opencode/…/project/bootstrap-service.ts")
+	})
+
+	test("keeps narrow paths inside the target width", () => {
+		const truncated = truncateConversationPath("very-long-top-level-directory/src/file.ts", 12)
+		expect(truncated).toHaveLength(12)
+		expect(truncated).toBe("…src/file.ts")
+	})
 })
 
 const conversation: readonly PullRequestConversationItem[] = [{

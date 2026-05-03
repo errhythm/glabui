@@ -447,9 +447,9 @@ const mixDiffLineContentColor = (base: string, accent: string, amount: number) =
 const diffCommentLineColor = (anchor: DiffCommentAnchor, kind: "selected" | "range" | "thread"): DiffLineColorConfig => {
 	const original = originalDiffLineColor(anchor)
 	const accent = kind === "thread" ? colors.status.pending : selectedDiffCommentAccent(anchor.kind)
-	if (kind === "thread") return { ...original, gutter: mixHex(original.gutter, accent, 0.45) }
+	if (kind === "thread") return { ...original, gutter: mixHex(original.gutter, accent, 0.3) }
 	return {
-		gutter: mixHex(original.gutter, accent, kind === "selected" ? 0.68 : 0.42),
+		gutter: mixHex(original.gutter, accent, kind === "selected" ? 0.38 : 0.26),
 		content: mixDiffLineContentColor(original.content, accent, kind === "selected" ? 0.2 : 0.1),
 	}
 }

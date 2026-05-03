@@ -3,8 +3,8 @@ import { Fragment, useMemo } from "react"
 import { formatRelativeDate } from "../date.js"
 import type { CheckItem, PullRequestConversationItem, PullRequestItem } from "../domain.js"
 import { colors, type ThemeId } from "./colors.js"
-import { commentCountText, commentDisplayRows, commentSideColor, CommentSegmentsLine, type CommentSegment } from "./comments.js"
-import { diffCommentLineLabel, diffStatText } from "./diff.js"
+import { commentCountText, commentDisplayRows, CommentSegmentsLine, type CommentSegment } from "./comments.js"
+import { diffStatText } from "./diff.js"
 import { DiffStats } from "./diffStats.js"
 import { centerCell, Divider, Filler, fitCell, PaddedRow, PlainLine, TextLine } from "./primitives.js"
 import { labelColor, labelTextColor, reviewLabel, shortRepoName, statusColor } from "./pullRequests.js"
@@ -191,12 +191,42 @@ const previewDivider = (): PreviewLine => ({
 	segments: [],
 })
 
+const truncateFromStart = (text: string, width: number) => {
+	if (text.length <= width) return text
+	if (width <= 1) return "…".slice(0, Math.max(0, width))
+	return `…${text.slice(-(width - 1))}`
+}
+
+export const truncateConversationPath = (path: string, width: number) => {
+	if (path.length <= width) return path
+	if (width <= 1) return "…".slice(0, Math.max(0, width))
+	const parts = path.split("/").filter((part) => part.length > 0)
+	if (parts.length <= 2) return truncateFromStart(path, width)
+
+	const prefixParts = parts[0] === "packages" && parts.length > 3 ? parts.slice(0, 2) : parts.slice(0, 1)
+	const prefix = prefixParts.join("/")
+	let suffixParts = [parts[parts.length - 1]!]
+	let best = `${prefix}/…/${suffixParts.join("/")}`
+
+	for (let index = parts.length - 2; index >= prefixParts.length; index--) {
+		const nextSuffix = [parts[index]!, ...suffixParts]
+		const candidate = `${prefix}/…/${nextSuffix.join("/")}`
+		if (candidate.length > width) break
+		suffixParts = nextSuffix
+		best = candidate
+	}
+
+	if (best.length <= width) return best
+	const suffixWidth = width - prefix.length - 3
+	if (suffixWidth < 1) return truncateFromStart(path, width)
+	return `${prefix}/…/${truncateFromStart(parts[parts.length - 1]!, suffixWidth)}`
+}
+
 const conversationItemGroups = (item: PullRequestConversationItem, width: number): readonly (readonly CommentSegment[])[] => {
 	if (item._tag !== "review-comment") return []
-	const locationWidth = Math.max(8, width - item.author.length - 20)
+	const pathWidth = Math.max(12, width - item.author.length - 20)
 	return [[
-		{ text: fitCell(item.path, locationWidth), fg: colors.inlineCode },
-		{ text: diffCommentLineLabel(item), fg: commentSideColor(item.side), bold: true },
+		{ text: truncateConversationPath(item.path, pathWidth), fg: colors.inlineCode },
 	]]
 }
 
