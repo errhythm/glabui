@@ -451,6 +451,7 @@ const writeCachedPullRequestAtom = githubRuntime.fn<PullRequestItem>()((pullRequ
 const writeQueueCacheAtom = githubRuntime.fn<{ readonly viewer: string; readonly load: PullRequestLoad }>()(({ viewer, load }) =>
 	CacheService.use((cache) => cache.writeQueue(viewer, load)),
 )
+const pruneCacheAtom = githubRuntime.fn<void>()(() => CacheService.use((cache) => cache.prune()))
 const addPullRequestLabelAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly label: string }>()((input) =>
 	GitHubService.use((github) => github.addPullRequestLabel(input.repository, input.number, input.label)),
 )
@@ -769,6 +770,7 @@ export const App = () => {
 	const readCachedPullRequest = useAtomSet(readCachedPullRequestAtom, { mode: "promise" })
 	const writeCachedPullRequest = useAtomSet(writeCachedPullRequestAtom, { mode: "promise" })
 	const writeQueueCache = useAtomSet(writeQueueCacheAtom, { mode: "promise" })
+	const pruneCache = useAtomSet(pruneCacheAtom, { mode: "promise" })
 	const getPullRequestMergeInfo = useAtomSet(getPullRequestMergeInfoAtom, { mode: "promise" })
 	const getRepositoryMergeMethods = useAtomSet(getRepositoryMergeMethodsAtom, { mode: "promise" })
 	const mergePullRequest = useAtomSet(mergePullRequestAtom, { mode: "promise" })
@@ -1192,6 +1194,13 @@ export const App = () => {
 			setRefreshStartedAt(null)
 		}
 	}, [refreshCompletionMessage, refreshStartedAt, pullRequestStatus, pullRequestError, pullRequestLoad?.fetchedAt, pullRequests])
+
+	// Best-effort startup prune: writeQueue prunes after each successful refresh,
+	// but a session that only browses cached state (or stays offline) never prunes.
+	// Firing once at mount keeps the cache bounded for those sessions.
+	useEffect(() => {
+		void pruneCache().catch(() => {})
+	}, [pruneCache])
 
 	useEffect(() => {
 		const handleFocus = () => {

@@ -266,4 +266,6 @@ Use the PR as contributor context, but implement the production shape above in s
 
 ## Status
 
-In progress. v1 foundation now covers SQLite-backed queue snapshots and hydrated PR details; comments, diffs, and side metadata remain in later phases. This should be finished before `plans/queued-reviews.md`.
+v1 foundation **shipped** (`24477aa Cache: SQLite-backed pull request and queue cache (foundation)`, `4cb2095 Details: comments summary in header + Markdown polish + cache wiring`). Startup prune wired in to keep the cache bounded for read-only sessions.
+
+Comments, diffs, and per-repo metadata persistence are now tracked in [`cache-v2.md`](./cache-v2.md). Bake v1 on the maintainer's machine for 1–2 weeks before starting v2.
