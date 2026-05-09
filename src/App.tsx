@@ -4046,8 +4046,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return
 		}
 
-		// Epic list mode: remap c/m to epic-specific actions before listNav fires
+		// Epic list mode: intercept enter/c/m before listNav fires
 		if (activeSection === "epics" && !epicIssueFocus && !filterMode) {
+			if (key.name === "return") {
+				// enter focuses the child issue list (not detailFullView)
+				if (epicIssues.length > 0) setEpicIssueFocus(true)
+				return
+			}
 			if (key.name === "c") {
 				runCommandById("epics.checkout-branches")
 				return
@@ -4352,7 +4357,6 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				primaryBranches={appSettings.primaryBranches}
 				contentWidth={isWideLayout ? rightContentWidth : fullscreenContentWidth}
 				paneWidth={isWideLayout ? rightPaneWidth : contentWidth}
-				onSelectIssue={setSelectedEpicIssueIndex}
 			/>
 		) : null
 

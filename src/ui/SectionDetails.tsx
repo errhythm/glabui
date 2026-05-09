@@ -130,7 +130,6 @@ export const EpicDetails = ({
 	primaryBranches,
 	contentWidth,
 	paneWidth,
-	onSelectIssue,
 }: {
 	readonly epic: EpicItem | null
 	readonly epicIssues: readonly IssueItem[]
@@ -140,7 +139,6 @@ export const EpicDetails = ({
 	readonly primaryBranches: Readonly<Record<string, string>>
 	readonly contentWidth: number
 	readonly paneWidth: number
-	readonly onSelectIssue: (index: number) => void
 }) => {
 	if (!epic) {
 		return (
@@ -219,7 +217,7 @@ export const EpicDetails = ({
 					const stateColor = issue.state === "opened" ? colors.status.review : colors.muted
 
 					return (
-						<TextLine key={issue.url} fg={fg} bg={bg} onMouseDown={() => onSelectIssue(index)}>
+						<TextLine key={issue.url} fg={fg} bg={bg}>
 							<span fg={selected ? colors.selectedText : stateColor} attributes={TextAttributes.BOLD}>
 								{fitCell(issue.state === "opened" ? "open" : "done", 5)}
 							</span>
