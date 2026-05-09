@@ -49,7 +49,7 @@ const StartupLogo = () => {
 
 	return (
 		<box width={width} height={height} flexDirection="column" backgroundColor={colors.background}>
-			<LoadingLogoPane content={{ hint: "Fetching latest open PRs" }} width={width} height={height} frame={frame} />
+			<LoadingLogoPane content={{ hint: "Fetching latest open MRs" }} width={width} height={height} frame={frame} />
 		</box>
 	)
 }

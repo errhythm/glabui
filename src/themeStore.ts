@@ -16,10 +16,10 @@ interface StoredConfig {
 }
 
 const configDirectory = () => {
-	if (process.env.GHUI_CONFIG_DIR) return process.env.GHUI_CONFIG_DIR
-	if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "ghui")
-	if (process.platform === "win32" && process.env.APPDATA) return join(process.env.APPDATA, "ghui")
-	return join(homedir(), ".config", "ghui")
+	if (process.env.GLABUI_CONFIG_DIR) return process.env.GLABUI_CONFIG_DIR
+	if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "glabui")
+	if (process.platform === "win32" && process.env.APPDATA) return join(process.env.APPDATA, "glabui")
+	return join(homedir(), ".config", "glabui")
 }
 
 export const configPath = () => join(configDirectory(), "config.json")
@@ -43,9 +43,9 @@ const writeStoredConfig = async (config: StoredConfig) => {
 export const loadStoredThemeId: Effect.Effect<ThemeId> = Effect.catchCause(
 	Effect.tryPromise(async () => {
 		const config = await readStoredConfig()
-		return isThemeId(config.theme) ? config.theme : "ghui"
+		return isThemeId(config.theme) ? config.theme : "glabui"
 	}),
-	() => Effect.succeed("ghui" satisfies ThemeId),
+	() => Effect.succeed("glabui" satisfies ThemeId),
 )
 
 export const loadStoredThemeConfig: Effect.Effect<ThemeConfig> = Effect.catchCause(

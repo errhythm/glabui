@@ -126,7 +126,7 @@ describe("review UX commands", () => {
 			commandById("pull.submit-review", {
 				selectedPullRequest: { ...selectedPullRequest, state: "closed" },
 			}).disabledReason,
-		).toBe("Pull request is not open.")
+		).toBe("Merge request is not open.")
 	})
 
 	test("state command requires an open pull request", () => {
@@ -134,7 +134,7 @@ describe("review UX commands", () => {
 			commandById("pull.toggle-draft", {
 				selectedPullRequest: { ...selectedPullRequest, state: "closed" },
 			}).disabledReason,
-		).toBe("Pull request is not open.")
+		).toBe("Merge request is not open.")
 	})
 
 	test("reply command requires the comments view", () => {

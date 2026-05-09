@@ -9,7 +9,7 @@ import {
 	type DiffCtx,
 	type ListNavCtx,
 	type MergeModalCtx,
-} from "../examples/ghui-port.ts"
+} from "../examples/glabui-port.ts"
 
 const makeCloseCtx = (log: string[]): CloseModalCtx => ({
 	closeModal: () => log.push("close-modal"),
@@ -53,14 +53,14 @@ const makeDiffCommentCtx = (log: string[], hasThread: boolean): DiffCommentCtx =
 })
 
 const makeDetailCtx = (log: string[]): DetailCtx => ({
-	selectedPullRequest: { url: "x", state: "open" },
+	selectedMergeRequest: { url: "x", state: "open" },
 	halfPage: 10,
 	scrollBy: (delta) => log.push(`det-by:${delta}`),
 	scrollTo: (line) => log.push(`det-to:${line}`),
 	closeDetail: () => log.push("det-close"),
 	openTheme: () => log.push("det-theme"),
 	openDiff: () => log.push("det-diff"),
-	closePullRequest: () => log.push("det-close-pr"),
+	closeMergeRequest: () => log.push("det-close-mr"),
 	openLabels: () => log.push("det-labels"),
 	openMerge: () => log.push("det-merge"),
 	toggleDraft: () => log.push("det-draft"),
@@ -106,8 +106,8 @@ const makeAppCtx = (log: string[], mode: Mode = {}): AppCtx => ({
 	openCommandPalette: () => log.push("palette"),
 })
 
-describe("ghui port — appKeymap", () => {
-	test("PR list nav: j/k step selection", () => {
+describe("glabui port — appKeymap", () => {
+	test("MR list nav: j/k step selection", () => {
 		const log: string[] = []
 		let ctx = makeAppCtx(log)
 		const d = createDispatcher(appKeymap, () => ctx)
@@ -116,7 +116,7 @@ describe("ghui port — appKeymap", () => {
 		expect(log).toEqual(["list-step:1", "list-step:-1"])
 	})
 
-	test("PR list gg/G top/bottom", () => {
+	test("MR list gg/G top/bottom", () => {
 		const log: string[] = []
 		let ctx = makeAppCtx(log)
 		const d = createDispatcher(appKeymap, () => ctx)
@@ -184,7 +184,7 @@ describe("ghui port — appKeymap", () => {
 		expect(log).toEqual(["dc-thread"])
 	})
 
-	test("detail view: 'r' refreshes (selectedPullRequest is set)", () => {
+	test("detail view: 'r' refreshes (selectedMergeRequest is set)", () => {
 		const log: string[] = []
 		let ctx = makeAppCtx(log, { detailFullView: true })
 		const d = createDispatcher(appKeymap, () => ctx)
@@ -192,11 +192,11 @@ describe("ghui port — appKeymap", () => {
 		expect(log).toEqual(["det-refresh"])
 	})
 
-	test("detail view: 'x' close-pr disabled when state is not open", () => {
+	test("detail view: 'x' close-mr disabled when state is not open", () => {
 		const log: string[] = []
 		let ctx: AppCtx = {
 			...makeAppCtx(log, { detailFullView: true }),
-			detail: { ...makeDetailCtx(log), selectedPullRequest: { url: "x", state: "merged" } },
+			detail: { ...makeDetailCtx(log), selectedMergeRequest: { url: "x", state: "merged" } },
 		}
 		const d = createDispatcher(appKeymap, () => ctx)
 		const result = d.dispatch(parseKey("x"))

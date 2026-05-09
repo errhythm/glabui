@@ -100,9 +100,9 @@ export const buildAppCommands = ({
 	hasDiffCommentThreads,
 	actions,
 }: BuildAppCommandsInput): readonly AppCommand[] => {
-	const selectedPullRequestLabel = selectedPullRequest ? `#${selectedPullRequest.number} ${selectedPullRequest.repository}` : "No pull request selected"
-	const noPullRequestReason = selectedPullRequest ? null : "Select a pull request first."
-	const noOpenPullRequestReason = selectedPullRequest?.state === "open" ? null : selectedPullRequest ? "Pull request is not open." : noPullRequestReason
+	const selectedPullRequestLabel = selectedPullRequest ? `#${selectedPullRequest.number} ${selectedPullRequest.repository}` : "No merge request selected"
+	const noPullRequestReason = selectedPullRequest ? null : "Select a merge request first."
+	const noOpenPullRequestReason = selectedPullRequest?.state === "open" ? null : selectedPullRequest ? "Merge request is not open." : noPullRequestReason
 	const diffReadyReason = selectedPullRequest ? (diffReady ? null : "Load the diff before running this command.") : noPullRequestReason
 	const diffOpenReadyReason = diffFullView ? diffReadyReason : "Open a diff first."
 	const selectedDiffLineReason = diffFullView && diffReady ? (selectedDiffCommentAnchorLabel ? null : "No diff line selected.") : diffOpenReadyReason
@@ -110,7 +110,7 @@ export const buildAppCommands = ({
 	const changedFilesReason = diffFullView && diffReady ? (readyDiffFileCount > 0 ? null : "No changed files loaded.") : diffOpenReadyReason
 	const selectedCommentReason = selectedPullRequest ? (commentsViewActive ? (hasSelectedComment ? null : "No comment selected.") : "Open comments first.") : noPullRequestReason
 	const ownCommentReason = selectedCommentReason ?? (canEditSelectedComment ? null : "Only your own (synced) comments can be edited or deleted.")
-	const loadMoreDisabledReason = isLoadingMorePullRequests ? "Already loading more pull requests." : hasMorePullRequests ? null : "No more pull requests loaded by this view."
+	const loadMoreDisabledReason = isLoadingMorePullRequests ? "Already loading more merge requests." : hasMorePullRequests ? null : "No more merge requests loaded by this view."
 
 	const forSelected = (command: Omit<AppCommand, "subtitle" | "disabledReason"> & { readonly requireOpen?: boolean }): AppCommand => {
 		const { requireOpen, ...rest } = command
@@ -126,23 +126,23 @@ export const buildAppCommands = ({
 			id: "command.open",
 			title: "Open command palette",
 			scope: "Global",
-			subtitle: "Search every available route through ghui",
+			subtitle: "Search every available route through glabui",
 			shortcut: "ctrl-p/cmd-k/?",
 			keywords: ["palette", "commands", "deck", "help", "keys", "keyboard", "shortcuts"],
 			run: actions.openCommandPalette,
 		}),
 		defineCommand({
 			id: "pull.refresh",
-			title: pullRequestStatus === "error" ? "Retry loading pull requests" : "Refresh pull requests",
+			title: pullRequestStatus === "error" ? "Retry loading merge requests" : "Refresh merge requests",
 			scope: "Global",
-			subtitle: "Fetch the latest queue from GitHub",
+			subtitle: "Fetch the latest queue from GitLab",
 			shortcut: "r",
 			keywords: ["reload", "sync"],
 			run: () => actions.refreshPullRequests("Refreshed", { resetTransientState: true }),
 		}),
 		defineCommand({
 			id: "filter.open",
-			title: "Filter pull requests",
+			title: "Filter merge requests",
 			scope: "Global",
 			subtitle: "Search the visible queue",
 			shortcut: "/",
@@ -151,9 +151,9 @@ export const buildAppCommands = ({
 		}),
 		defineCommand({
 			id: "filter.clear",
-			title: "Clear pull request filter",
+			title: "Clear merge request filter",
 			scope: "Global",
-			subtitle: "Show every pull request in the current queue",
+			subtitle: "Show every merge request in the current queue",
 			shortcut: "esc",
 			disabledReason: filterQuery.length > 0 || filterMode ? null : "No filter is active.",
 			run: actions.clearFilter,
@@ -171,7 +171,7 @@ export const buildAppCommands = ({
 			id: "repository.open",
 			title: "Open repository...",
 			scope: "View",
-			subtitle: selectedRepository ? `Current repository: ${selectedRepository}` : "Enter owner/name or a GitHub URL",
+			subtitle: selectedRepository ? `Current repository: ${selectedRepository}` : "Enter owner/name or a GitLab URL",
 			keywords: ["repo", "repository", "owner", "github"],
 			run: actions.openRepositoryPicker,
 		}),
@@ -180,7 +180,7 @@ export const buildAppCommands = ({
 				id: view._tag === "Repository" ? "view.repository" : `view.${view.mode}`,
 				title: `Show ${viewLabel(view)} view`,
 				scope: "View" as const,
-				subtitle: viewEquals(view, activeView) ? "Already showing this view" : "Switch pull request view",
+				subtitle: viewEquals(view, activeView) ? "Already showing this view" : "Switch merge request view",
 				keywords: [viewMode(view), viewLabel(view), "queue", "view"],
 				disabledReason: viewEquals(view, activeView) ? "Already showing this view." : null,
 				run: () => actions.switchViewTo(view),
@@ -188,7 +188,7 @@ export const buildAppCommands = ({
 		),
 		defineCommand({
 			id: "pull.load-more",
-			title: "Load more pull requests",
+			title: "Load more merge requests",
 			scope: "Navigation",
 			subtitle: `${loadedPullRequestCount} loaded`,
 			disabledReason: loadMoreDisabledReason,
@@ -197,7 +197,7 @@ export const buildAppCommands = ({
 		}),
 		forSelected({
 			id: "detail.open",
-			title: "Open pull request details",
+			title: "Open merge request details",
 			scope: "Pull request",
 			shortcut: "enter",
 			run: actions.openDetails,
@@ -280,7 +280,7 @@ export const buildAppCommands = ({
 			scope: "Diff",
 			subtitle: selectedPullRequestLabel,
 			shortcut: "r",
-			disabledReason: diffFullView && selectedPullRequest ? null : "Open a pull request diff first.",
+			disabledReason: diffFullView && selectedPullRequest ? null : "Open a merge request diff first.",
 			keywords: ["refresh", "comments"],
 			run: actions.reloadDiff,
 		}),
@@ -306,7 +306,7 @@ export const buildAppCommands = ({
 			id: "diff.toggle-whitespace",
 			title: diffWhitespaceMode === "ignore" ? "Show whitespace changes" : "Ignore whitespace changes",
 			scope: "Diff",
-			subtitle: diffWhitespaceMode === "ignore" ? "Display the original GitHub patch" : "Hide whitespace-only line changes",
+			subtitle: diffWhitespaceMode === "ignore" ? "Display the original GitLab patch" : "Hide whitespace-only line changes",
 			disabledReason: diffFullView ? null : "Open a diff first.",
 			keywords: ["whitespace", "spacing", "ignore", "show"],
 			run: actions.toggleDiffWhitespaceMode,
@@ -390,7 +390,7 @@ export const buildAppCommands = ({
 		}),
 		forSelected({
 			id: "pull.submit-review",
-			title: "Review pull request",
+			title: "Review merge request",
 			scope: "Pull request",
 			shortcut: "shift-r",
 			requireOpen: true,
@@ -415,7 +415,7 @@ export const buildAppCommands = ({
 		}),
 		forSelected({
 			id: "pull.merge",
-			title: "Merge pull request",
+			title: "Merge merge request",
 			scope: "Pull request",
 			shortcut: "m",
 			keywords: ["auto merge", "squash"],
@@ -423,7 +423,7 @@ export const buildAppCommands = ({
 		}),
 		forSelected({
 			id: "pull.close",
-			title: "Close pull request",
+			title: "Close merge request",
 			scope: "Pull request",
 			shortcut: "x",
 			requireOpen: true,
@@ -431,7 +431,7 @@ export const buildAppCommands = ({
 		}),
 		forSelected({
 			id: "pull.open-browser",
-			title: "Open pull request in browser",
+			title: "Open merge request in browser",
 			scope: "Pull request",
 			shortcut: "o",
 			keywords: ["github", "web"],
@@ -439,7 +439,7 @@ export const buildAppCommands = ({
 		}),
 		forSelected({
 			id: "pull.copy-metadata",
-			title: "Copy pull request metadata",
+			title: "Copy merge request metadata",
 			scope: "Pull request",
 			shortcut: "y",
 			keywords: ["clipboard", "url", "title"],
@@ -447,7 +447,7 @@ export const buildAppCommands = ({
 		}),
 		defineCommand({
 			id: "app.quit",
-			title: "Quit ghui",
+			title: "Quit glabui",
 			scope: "System",
 			subtitle: "Leave the terminal UI",
 			shortcut: "q",

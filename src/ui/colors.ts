@@ -1,6 +1,6 @@
 export type ThemeId =
 	| "system"
-	| "ghui"
+	| "glabui"
 	| "tokyo-night"
 	| "catppuccin"
 	| "catppuccin-latte"
@@ -182,7 +182,7 @@ export const lineNumberTextColor = (background: string, foreground: string) => {
 	return mixHex(bg, fg, contrast < 90 ? 0.62 : 0.5)
 }
 
-const ghuiColors: ColorPalette = {
+const glabuiColors: ColorPalette = {
 	background: "#111018",
 	modalBackground: "#1a1a2e",
 	text: "#ede7da",
@@ -1293,7 +1293,7 @@ const cursorColors: ColorPalette = {
 
 export const themeDefinitions: readonly ThemeDefinition[] = [
 	{ id: "system", name: "System", description: "Use the terminal foreground, background, and ANSI palette", tone: "dark", colors: systemColors },
-	{ id: "ghui", name: "GHUI", description: "Warm parchment accents on a deep slate background", tone: "dark", colors: ghuiColors },
+	{ id: "glabui", name: "GLabUI", description: "Warm parchment accents on a deep slate background", tone: "dark", colors: glabuiColors },
 	{ id: "tokyo-night", name: "Tokyo Night", description: "Cool indigo surfaces with neon editor accents", tone: "dark", colors: tokyoNightColors },
 	{ id: "catppuccin", name: "Catppuccin", description: "Mocha lavender, peach, and soft pastel contrast", tone: "dark", colors: catppuccinColors },
 	{ id: "catppuccin-latte", name: "Catppuccin Latte", description: "Light frothy cream with pastel lavender and peach", tone: "light", colors: catppuccinLatteColors },
@@ -1337,9 +1337,9 @@ const pairedThemeIds: Partial<Record<ThemeId, ThemeId>> = {
 	"ayu-light": "ayu",
 }
 
-let activeTheme = themeDefinitions.find((theme) => theme.id === "ghui") ?? themeDefinitions[0]!
+let activeTheme = themeDefinitions.find((theme) => theme.id === "glabui") ?? themeDefinitions[0]!
 
-export const colors: ColorPalette = { ...ghuiColors }
+export const colors: ColorPalette = { ...glabuiColors }
 
 export const getThemeDefinition = (id: ThemeId) => themeDefinitions.find((theme) => theme.id === id) ?? themeDefinitions[0]!
 

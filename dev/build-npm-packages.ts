@@ -21,7 +21,7 @@ const run = (cmd: readonly string[]) => {
 	if (proc.exitCode !== 0) throw new Error(`Command failed (${proc.exitCode}): ${cmd.join(" ")}`)
 }
 
-const reuseReleaseBinary = process.env.GHUI_REUSE_RELEASE_BINARY === "1"
+const reuseReleaseBinary = process.env.GLABUI_REUSE_RELEASE_BINARY === "1"
 
 const selectedTargets = () => {
 	if (requested === "main") return []
@@ -57,8 +57,8 @@ const packageMetadata = (target: ReleaseTarget) => ({
 const buildBinaryPackage = async (target: ReleaseTarget) => {
 	const packageDir = join(outDir, "binaries", target.id)
 	const binDir = join(packageDir, "bin")
-	const binaryPath = join(binDir, "ghui")
-	const releaseBinaryPath = join(root, "dist", "release", target.id, "ghui")
+	const binaryPath = join(binDir, "glabui")
+	const releaseBinaryPath = join(root, "dist", "release", target.id, "glabui")
 
 	await rm(packageDir, { recursive: true, force: true })
 	await mkdir(binDir, { recursive: true })
@@ -82,7 +82,7 @@ const buildMainPackage = async () => {
 	const packageDir = join(outDir, "main")
 	await rm(packageDir, { recursive: true, force: true })
 	await mkdir(join(packageDir, "bin"), { recursive: true })
-	await cp(join(root, "bin", "ghui.js"), join(packageDir, "bin", "ghui.js"))
+	await cp(join(root, "bin", "glabui.js"), join(packageDir, "bin", "glabui.js"))
 	await cp(join(root, "README.md"), join(packageDir, "README.md"))
 	await cp(join(root, "LICENSE"), join(packageDir, "LICENSE"))
 
@@ -95,8 +95,8 @@ const buildMainPackage = async () => {
 		repository: rootPackage.repository,
 		bugs: rootPackage.bugs,
 		homepage: rootPackage.homepage,
-		keywords: ["github", "pull-requests", "terminal", "tui"],
-		bin: { ghui: "bin/ghui.js" },
+		keywords: ["gitlab", "merge-requests", "terminal", "tui"],
+		bin: { glabui: "bin/glabui.js" },
 		files: ["bin", "README.md", "LICENSE"],
 		optionalDependencies: Object.fromEntries(releaseTargets.map((target) => [binaryPackageName(rootPackage.name, target), rootPackage.version])),
 		publishConfig: {

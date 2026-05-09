@@ -1,19 +1,19 @@
-import type { PullRequestItem } from "./domain.js"
+import type { MergeRequestItem } from "./domain.js"
 
-export const mergeCachedDetails = (fresh: readonly PullRequestItem[], cached: readonly PullRequestItem[] | undefined) => {
+export const mergeCachedDetails = (fresh: readonly MergeRequestItem[], cached: readonly MergeRequestItem[] | undefined) => {
 	if (!cached) return fresh
-	const cachedByUrl = new Map(cached.map((pullRequest) => [pullRequest.url, pullRequest]))
-	return fresh.map((pullRequest) => {
-		const cachedPullRequest = cachedByUrl.get(pullRequest.url)
-		if (!cachedPullRequest?.detailLoaded || cachedPullRequest.headRefOid !== pullRequest.headRefOid) return pullRequest
+	const cachedByUrl = new Map(cached.map((mr) => [mr.url, mr]))
+	return fresh.map((mr) => {
+		const cachedMr = cachedByUrl.get(mr.url)
+		if (!cachedMr?.detailLoaded || cachedMr.headRefOid !== mr.headRefOid) return mr
 		return {
-			...pullRequest,
-			body: cachedPullRequest.body,
-			labels: cachedPullRequest.labels,
-			additions: cachedPullRequest.additions,
-			deletions: cachedPullRequest.deletions,
-			changedFiles: cachedPullRequest.changedFiles,
+			...mr,
+			body: cachedMr.body,
+			labels: cachedMr.labels,
+			additions: cachedMr.additions,
+			deletions: cachedMr.deletions,
+			changedFiles: cachedMr.changedFiles,
 			detailLoaded: true,
-		} satisfies PullRequestItem
+		} satisfies MergeRequestItem
 	})
 }

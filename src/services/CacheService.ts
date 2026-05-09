@@ -5,7 +5,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import * as Migrator from "effect/unstable/sql/Migrator"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { SqlError } from "effect/unstable/sql/SqlError"
-import { checkConclusions, checkRollupStatuses, checkRunStatuses, pullRequestQueueModes, pullRequestStates, reviewStatuses, type PullRequestItem } from "../domain.js"
+import { checkRollupStatuses, checkRunStatuses, pullRequestQueueModes, pullRequestStates, reviewStatuses, type PullRequestItem } from "../domain.js"
 import { mergeCachedDetails } from "../pullRequestCache.js"
 import type { PullRequestLoad } from "../pullRequestLoad.js"
 import { type PullRequestView, viewCacheKey } from "../pullRequestViews.js"
@@ -20,7 +20,6 @@ export class CacheError extends Schema.TaggedErrorClass<CacheError>()("CacheErro
 	cause: Schema.Defect,
 }) {}
 
-const CheckConclusionSchema = Schema.Literals(checkConclusions)
 const CheckRunStatusSchema = Schema.Literals(checkRunStatuses)
 const CheckRollupStatusSchema = Schema.Literals(checkRollupStatuses)
 const PullRequestStateSchema = Schema.Literals(pullRequestStates)
@@ -34,7 +33,7 @@ const CachedPullRequestLabelSchema = Schema.Struct({
 const CachedCheckItemSchema = Schema.Struct({
 	name: Schema.String,
 	status: CheckRunStatusSchema,
-	conclusion: Schema.NullOr(CheckConclusionSchema),
+	stage: Schema.optionalKey(Schema.String),
 })
 
 const CachedPullRequestItemSchema = Schema.Struct({
@@ -50,6 +49,7 @@ const CachedPullRequestItemSchema = Schema.Struct({
 	deletions: Schema.Number,
 	changedFiles: Schema.Number,
 	state: PullRequestStateSchema,
+	isDraft: Schema.optionalKey(Schema.Boolean),
 	reviewStatus: ReviewStatusSchema,
 	checkStatus: CheckRollupStatusSchema,
 	checkSummary: Schema.NullOr(Schema.String),
@@ -117,10 +117,11 @@ const cachedPullRequestToDomain = (cached: CachedPullRequestItem): PullRequestIt
 		deletions: cached.deletions,
 		changedFiles: cached.changedFiles,
 		state: cached.state,
+		isDraft: cached.isDraft ?? false,
 		reviewStatus: cached.reviewStatus,
 		checkStatus: cached.checkStatus,
 		checkSummary: cached.checkSummary,
-		checks: cached.checks,
+		checks: cached.checks.map((c) => ({ name: c.name, status: c.status, stage: c.stage ?? "" })),
 		autoMergeEnabled: cached.autoMergeEnabled,
 		detailLoaded: cached.detailLoaded,
 		createdAt,

@@ -16,6 +16,7 @@ import { config } from "./config.js"
 import {
 	type CreatePullRequestCommentInput,
 	type DiffCommentSide,
+	isReviewComment,
 	type ListPullRequestPageInput,
 	type LoadStatus,
 	type PullRequestComment,
@@ -50,7 +51,7 @@ import { BrowserOpener } from "./services/BrowserOpener.js"
 import { CacheService, type PullRequestCacheKey } from "./services/CacheService.js"
 import { Clipboard } from "./services/Clipboard.js"
 import { CommandRunner } from "./services/CommandRunner.js"
-import { GitHubService } from "./services/GitHubService.js"
+import { GitLabService } from "./services/GitLabService.js"
 import { detectSystemAppearance } from "./systemAppearance.js"
 import { fixedThemeConfig, resolveThemeId, systemThemeConfigForTheme, themeConfigWithSelection, type ThemeConfig, type ThemeMode } from "./themeConfig.js"
 import { loadStoredDiffWhitespaceMode, loadStoredThemeConfig, saveStoredDiffWhitespaceMode, saveStoredThemeConfig } from "./themeStore.js"
@@ -171,19 +172,20 @@ const parseOptionalPositiveInt = (value: string | undefined, fallback: number | 
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
+const pullRequestPageSize = Math.min(100, parseOptionalPositiveInt(process.env.GLABUI_PR_PAGE_SIZE, config.mrPageSize) ?? config.mrPageSize)
+
 const mockPrCount = parseOptionalPositiveInt(process.env.GHUI_MOCK_PR_COUNT, null)
-const pullRequestPageSize = Math.min(100, parseOptionalPositiveInt(process.env.GHUI_PR_PAGE_SIZE, config.prPageSize) ?? config.prPageSize)
-const githubServiceLayer =
+const gitlabServiceLayer =
 	mockPrCount !== null
-		? (await import("./services/MockGitHubService.js")).MockGitHubService.layer({
+		? (await import("./services/MockGitLabService.js")).MockGitLabService.layer({
 				prCount: mockPrCount,
 				repoCount: parseOptionalPositiveInt(process.env.GHUI_MOCK_REPO_COUNT, 4) ?? 4,
 			})
-		: GitHubService.layerNoDeps
+		: GitLabService.layer
 const cacheServiceLayer = mockPrCount !== null ? CacheService.disabledLayer : CacheService.layerFromPath(config.cachePath)
 
 const githubRuntime = Atom.runtime(
-	Layer.mergeAll(githubServiceLayer, cacheServiceLayer, Clipboard.layerNoDeps, BrowserOpener.layerNoDeps).pipe(
+	Layer.mergeAll(gitlabServiceLayer, cacheServiceLayer, Clipboard.layerNoDeps, BrowserOpener.layerNoDeps).pipe(
 		Layer.provide(CommandRunner.layer),
 		Layer.provideMerge(Observability.layer),
 	),
@@ -283,14 +285,14 @@ const trimQueueLoadCache = (cache: Partial<Record<string, PullRequestLoad>>) => 
 }
 const pullRequestsAtom = githubRuntime
 	.atom(
-		GitHubService.use((github) =>
+		GitLabService.use((gitlab) =>
 			Effect.gen(function* () {
 				const cacheService = yield* CacheService
 				const view = yield* Atom.get(activeViewAtom)
 				const queueMode = viewMode(view)
 				const repository = viewRepository(view)
 				const cacheKey = viewCacheKey(view)
-				const cacheUsername = view._tag === "Repository" ? null : yield* github.getAuthenticatedUser().pipe(Effect.catch(() => Effect.succeed(null)))
+				const cacheUsername = view._tag === "Repository" ? null : yield* gitlab.getViewer().pipe(Effect.catch(() => Effect.succeed(null)))
 				const cacheViewer = cacheViewerFor(view, cacheUsername)
 				if (cacheViewer) {
 					const cachedLoad = yield* cacheService.readQueue(cacheViewer, view).pipe(Effect.catch(() => Effect.succeed(null)))
@@ -300,12 +302,12 @@ const pullRequestsAtom = githubRuntime
 					}
 				}
 				yield* Atom.set(retryProgressAtom, initialRetryProgress)
-				const page = yield* github
-					.listOpenPullRequestPage({
+				const page = yield* gitlab
+					.listMergeRequests({
 						mode: queueMode,
 						repository,
 						cursor: null,
-						pageSize: Math.min(pullRequestPageSize, config.prFetchLimit),
+						pageSize: Math.min(pullRequestPageSize, config.mrFetchLimit),
 					})
 					.pipe(
 						Effect.tapError(() =>
@@ -329,7 +331,7 @@ const pullRequestsAtom = githubRuntime
 					data,
 					fetchedAt: new Date(),
 					endCursor: page.endCursor,
-					hasNextPage: page.hasNextPage && data.length < config.prFetchLimit,
+					hasNextPage: page.hasNextPage && data.length < config.mrFetchLimit,
 				} satisfies PullRequestLoad
 				const nextCache = { ...cache }
 				delete nextCache[cacheKey]
@@ -375,7 +377,7 @@ const repoMergeMethodsCacheAtom = Atom.make<Record<string, RepositoryMergeMethod
 const lastUsedMergeMethodAtom = Atom.make<Record<string, PullRequestMergeMethod>>({}).pipe(Atom.keepAlive)
 const pullRequestOverridesAtom = Atom.make<Record<string, PullRequestItem>>({}).pipe(Atom.keepAlive)
 const recentlyCompletedPullRequestsAtom = Atom.make<Record<string, PullRequestItem>>({}).pipe(Atom.keepAlive)
-const usernameAtom = githubRuntime.atom(GitHubService.use((github) => github.getAuthenticatedUser())).pipe(Atom.keepAlive)
+const usernameAtom = githubRuntime.atom(GitLabService.use((gitlab) => gitlab.getViewer())).pipe(Atom.keepAlive)
 
 const pullRequestLoadAtom = Atom.make((get) => {
 	const view = get(activeViewAtom)
@@ -466,11 +468,11 @@ const selectedDiffStateAtom = Atom.make((get) => {
 	return get(pullRequestDiffCacheAtom)[key]
 })
 
-const listRepoLabelsAtom = githubRuntime.fn<string>()((repository) => GitHubService.use((github) => github.listRepoLabels(repository)))
-const listOpenPullRequestPageAtom = githubRuntime.fn<ListPullRequestPageInput>()((input) => GitHubService.use((github) => github.listOpenPullRequestPage(input)))
+const listRepoLabelsAtom = githubRuntime.fn<string>()((repository) => GitLabService.use((gitlab) => gitlab.getRepositoryLabels(repository)))
+const listOpenPullRequestPageAtom = githubRuntime.fn<ListPullRequestPageInput>()((input) => GitLabService.use((gitlab) => gitlab.listMergeRequests(input)))
 const pullRequestDetailsAtom = Atom.family((key: string) => {
 	const { repository, number } = parsePullRequestDetailAtomKey(key)
-	return githubRuntime.atom(GitHubService.use((github) => github.getPullRequestDetails(repository, number)))
+	return githubRuntime.atom(GitLabService.use((gitlab) => gitlab.getMergeRequestDetail(repository, number)))
 })
 const readCachedPullRequestAtom = githubRuntime.fn<PullRequestCacheKey>()((key) => CacheService.use((cache) => cache.readPullRequest(key)))
 const writeCachedPullRequestAtom = githubRuntime.fn<PullRequestItem>()((pullRequest) => CacheService.use((cache) => cache.upsertPullRequest(pullRequest)))
@@ -479,54 +481,54 @@ const writeQueueCacheAtom = githubRuntime.fn<{ readonly viewer: string; readonly
 )
 const pruneCacheAtom = githubRuntime.fn<void>()(() => CacheService.use((cache) => cache.prune()))
 const addPullRequestLabelAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly label: string }>()((input) =>
-	GitHubService.use((github) => github.addPullRequestLabel(input.repository, input.number, input.label)),
+	GitLabService.use((gitlab) => gitlab.addLabel({ repository: input.repository, number: input.number, label: input.label })),
 )
 const removePullRequestLabelAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly label: string }>()((input) =>
-	GitHubService.use((github) => github.removePullRequestLabel(input.repository, input.number, input.label)),
+	GitLabService.use((gitlab) => gitlab.removeLabel({ repository: input.repository, number: input.number, label: input.label })),
 )
 const toggleDraftAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly isDraft: boolean }>()((input) =>
-	GitHubService.use((github) => github.toggleDraftStatus(input.repository, input.number, input.isDraft)),
+	GitLabService.use((gitlab) => gitlab.toggleDraftStatus({ repository: input.repository, number: input.number, isDraft: input.isDraft })),
 )
 const pullRequestDiffAtom = Atom.family((key: string) => {
 	const { repository, number } = parsePullRequestDiffAtomKey(key)
-	return githubRuntime.atom(GitHubService.use((github) => github.getPullRequestDiff(repository, number)))
+	return githubRuntime.atom(GitLabService.use((gitlab) => gitlab.getMergeRequestDiff(repository, number, "")).pipe(Effect.map((diffs) => diffs.map((d) => d.patch).join("\n"))))
 })
 const listPullRequestReviewCommentsAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
-	GitHubService.use((github) => github.listPullRequestReviewComments(input.repository, input.number)),
+	GitLabService.use((gitlab) => gitlab.getMergeRequestComments(input.repository, input.number)),
 )
 const listPullRequestCommentsAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
-	GitHubService.use((github) => github.listPullRequestComments(input.repository, input.number)),
+	GitLabService.use((gitlab) => gitlab.getMergeRequestComments(input.repository, input.number)),
 )
 const getPullRequestMergeInfoAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
-	GitHubService.use((github) => github.getPullRequestMergeInfo(input.repository, input.number)),
+	GitLabService.use((gitlab) => gitlab.getMergeRequestMergeInfo({ repository: input.repository, number: input.number })),
 )
-const getRepositoryMergeMethodsAtom = githubRuntime.fn<string>()((repository) => GitHubService.use((github) => github.getRepositoryMergeMethods(repository)))
+const getRepositoryMergeMethodsAtom = githubRuntime.fn<string>()((repository) => GitLabService.use((gitlab) => gitlab.getRepositoryMergeMethods(repository)))
 const mergePullRequestAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly action: PullRequestMergeAction }>()((input) =>
-	GitHubService.use((github) => github.mergePullRequest(input.repository, input.number, input.action)),
+	GitLabService.use((gitlab) => gitlab.mergeMergeRequest({ repository: input.repository, number: input.number, action: input.action })),
 )
 const closePullRequestAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number }>()((input) =>
-	GitHubService.use((github) => github.closePullRequest(input.repository, input.number)),
+	GitLabService.use((gitlab) => gitlab.closeMergeRequest({ repository: input.repository, number: input.number })),
 )
-const createPullRequestCommentAtom = githubRuntime.fn<CreatePullRequestCommentInput>()((input) => GitHubService.use((github) => github.createPullRequestComment(input)))
+const createPullRequestCommentAtom = githubRuntime.fn<CreatePullRequestCommentInput>()((input) => GitLabService.use((gitlab) => gitlab.createMergeRequestComment(input)))
 const createPullRequestIssueCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly body: string }>()((input) =>
-	GitHubService.use((github) => github.createPullRequestIssueComment(input.repository, input.number, input.body)),
+	GitLabService.use((gitlab) => gitlab.createMergeRequestComment({ repository: input.repository, number: input.number, body: input.body })),
 )
 const replyToReviewCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly inReplyTo: string; readonly body: string }>()((input) =>
-	GitHubService.use((github) => github.replyToReviewComment(input.repository, input.number, input.inReplyTo, input.body)),
+	GitLabService.use((gitlab) => gitlab.replyToDiscussion(input.repository, input.number, input.inReplyTo, input.body)),
 )
-const editPullRequestIssueCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly commentId: string; readonly body: string }>()((input) =>
-	GitHubService.use((github) => github.editPullRequestIssueComment(input.repository, input.commentId, input.body)),
+const editPullRequestIssueCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly commentId: string; readonly body: string }>()((input) =>
+	GitLabService.use((gitlab) => gitlab.editMergeRequestComment(input.repository, input.number, input.commentId, input.body)),
 )
-const editReviewCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly commentId: string; readonly body: string }>()((input) =>
-	GitHubService.use((github) => github.editReviewComment(input.repository, input.commentId, input.body)),
+const editReviewCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly commentId: string; readonly body: string }>()((input) =>
+	GitLabService.use((gitlab) => gitlab.editMergeRequestComment(input.repository, input.number, input.commentId, input.body)),
 )
-const deletePullRequestIssueCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly commentId: string }>()((input) =>
-	GitHubService.use((github) => github.deletePullRequestIssueComment(input.repository, input.commentId)),
+const deletePullRequestIssueCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly commentId: string }>()((input) =>
+	GitLabService.use((gitlab) => gitlab.deleteMergeRequestComment(input.repository, input.number, input.commentId)),
 )
-const deleteReviewCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly commentId: string }>()((input) =>
-	GitHubService.use((github) => github.deleteReviewComment(input.repository, input.commentId)),
+const deleteReviewCommentAtom = githubRuntime.fn<{ readonly repository: string; readonly number: number; readonly commentId: string }>()((input) =>
+	GitLabService.use((gitlab) => gitlab.deleteMergeRequestComment(input.repository, input.number, input.commentId)),
 )
-const submitPullRequestReviewAtom = githubRuntime.fn<SubmitPullRequestReviewInput>()((input) => GitHubService.use((github) => github.submitPullRequestReview(input)))
+const submitPullRequestReviewAtom = githubRuntime.fn<SubmitPullRequestReviewInput>()((input) => GitLabService.use((gitlab) => gitlab.submitMergeRequestReview(input)))
 const copyToClipboardAtom = githubRuntime.fn<string>()((text) => Clipboard.use((clipboard) => clipboard.copy(text)))
 const openInBrowserAtom = githubRuntime.fn<PullRequestItem>()((pullRequest) => BrowserOpener.use((browser) => browser.openPullRequest(pullRequest)))
 const openUrlAtom = githubRuntime.fn<string>()((url) => BrowserOpener.use((browser) => browser.openUrl(url)))
@@ -957,7 +959,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const activeViews = activePullRequestViews(activeView)
 	const currentQueueCacheKey = viewCacheKey(activeView)
 	const loadedPullRequestCount = pullRequestLoad?.data.length ?? 0
-	const hasMorePullRequests = Boolean(pullRequestLoad?.hasNextPage && loadedPullRequestCount < config.prFetchLimit)
+	const hasMorePullRequests = Boolean(pullRequestLoad?.hasNextPage && loadedPullRequestCount < config.mrFetchLimit)
 	const isLoadingMorePullRequests = loadingMoreKey === currentQueueCacheKey
 	const pullRequestListRows = useMemo(
 		() =>
@@ -1127,7 +1129,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	}
 	const loadMorePullRequests = () => {
 		if (!pullRequestLoad || !hasMorePullRequests || isLoadingMorePullRequests || !pullRequestLoad.endCursor) return false
-		const remaining = config.prFetchLimit - pullRequestLoad.data.length
+		const remaining = config.mrFetchLimit - pullRequestLoad.data.length
 		if (remaining <= 0) return false
 		const cacheKey = currentQueueCacheKey
 		const generation = refreshGenerationRef.current
@@ -1147,7 +1149,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					...currentLoad,
 					data,
 					endCursor: page.endCursor,
-					hasNextPage: page.hasNextPage && data.length < config.prFetchLimit,
+					hasNextPage: page.hasNextPage && data.length < config.mrFetchLimit,
 				}
 				setQueueLoadCache((current) => {
 					if (!current[cacheKey]) return current
@@ -1617,7 +1619,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				setDiffCommentsLoaded((current) => ({ ...current, [key]: "ready" }))
 				setDiffCommentThreads((current) => {
 					const prefix = `${key}:`
-					const threads = groupDiffCommentThreads(pullRequest, comments)
+					const threads = groupDiffCommentThreads(pullRequest, comments.filter(isReviewComment))
 					const next: Record<string, readonly PullRequestReviewComment[]> = Object.fromEntries(Object.entries(current).filter(([threadKey]) => !threadKey.startsWith(prefix)))
 
 					for (const [threadKey, threadComments] of Object.entries(current)) {
@@ -2044,7 +2046,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		flashNotice(`Commenting on ${target.path}:${target.line}`)
 		void createPullRequestComment(input)
 			.then((comment) => {
-				if (threadKey) {
+				if (threadKey && isReviewComment(comment)) {
 					setDiffCommentThreads((current) => ({
 						...current,
 						[threadKey]: (current[threadKey] ?? []).map((existing) => (existing.id === optimisticComment.id ? comment : existing)),
@@ -2052,7 +2054,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				}
 				setPullRequestComments((current) => ({
 					...current,
-					[key]: (current[key] ?? []).map((existing) => (existing.id === optimisticComment.id ? reviewCommentAsPullRequestComment(comment) : existing)),
+					[key]: (current[key] ?? []).map((existing) => (existing.id === optimisticComment.id ? reviewCommentAsPullRequestComment(comment as PullRequestReviewComment) : existing)),
 				}))
 				flashNotice(`Commented on ${target.path}:${target.line}`)
 			})
@@ -2236,6 +2238,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return
 		}
 		const repository = selectedPullRequest.repository
+		const mrNumber = selectedPullRequest.number
 
 		// Optimistically swap the body in both caches; restore the previous on failure.
 		const previousReview = previous._tag === "review-comment" ? previous : null
@@ -2254,8 +2257,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 
 		const request =
 			target.commentTag === "comment"
-				? () => editPullRequestIssueComment({ repository, commentId: target.commentId, body })
-				: () => editReviewComment({ repository, commentId: target.commentId, body })
+				? () => editPullRequestIssueComment({ repository, number: mrNumber, commentId: target.commentId, body })
+				: () => editReviewComment({ repository, number: mrNumber, commentId: target.commentId, body })
 
 		void request()
 			.then((updated) => {
@@ -2332,6 +2335,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		const previousThread = threadKey ? (diffCommentThreads[threadKey] ?? []) : []
 		const previousThreadIndex = previousReview ? previousThread.findIndex((entry) => entry.id === previous.id) : -1
 		const repository = selectedPullRequest.repository
+		const mrNumber = selectedPullRequest.number
 
 		setPullRequestComments((current) => ({
 			...current,
@@ -2348,11 +2352,12 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		}
 		closeActiveModal()
 		flashNotice("Deleting comment")
+		flashNotice("Deleting comment")
 
 		const request =
 			target.commentTag === "comment"
-				? () => deletePullRequestIssueComment({ repository, commentId: target.commentId })
-				: () => deleteReviewComment({ repository, commentId: target.commentId })
+				? () => deletePullRequestIssueComment({ repository, number: mrNumber, commentId: target.commentId })
+				: () => deleteReviewComment({ repository, number: mrNumber, commentId: target.commentId })
 
 		void request()
 			.then(() => flashNotice("Comment deleted"))

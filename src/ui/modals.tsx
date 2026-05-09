@@ -408,10 +408,10 @@ export const initialThemeModalState: ThemeModalState = {
 	filterMode: false,
 	mode: "fixed",
 	tone: "dark",
-	fixedTheme: "ghui",
-	darkTheme: "ghui",
+	fixedTheme: "glabui",
+	darkTheme: "glabui",
 	lightTheme: "catppuccin-latte",
-	initialThemeConfig: { mode: "fixed", theme: "ghui" },
+	initialThemeConfig: { mode: "fixed", theme: "glabui" },
 }
 
 export const initialCommandPaletteState: CommandPaletteState = {
@@ -475,7 +475,7 @@ export const OpenRepositoryModal = ({
 	offsetTop: number
 }) => {
 	const { contentWidth } = standardModalDims(modalWidth, modalHeight)
-	const inputText = state.query.length > 0 ? state.query : "owner/name or GitHub URL"
+	const inputText = state.query.length > 0 ? state.query : "group/project or GitLab URL"
 
 	return (
 		<StandardModal
@@ -513,7 +513,7 @@ export const OpenRepositoryModal = ({
 }
 
 const mergeUnavailableReason = (info: PullRequestMergeInfo | null) => {
-	if (!info) return "Loading merge status from GitHub."
+	if (!info) return "Loading merge status from GitLab."
 	if (info.state !== "open") return "This pull request is not open."
 	// Check the real blockers first; draft alone is recoverable via mark-ready, so
 	// it's only the message of last resort.
@@ -1077,7 +1077,7 @@ export const DeleteCommentModal = ({
 			title={title}
 			titleFg={colors.error}
 			headerRight={{ text: rightText, pending: state.running }}
-			subtitle={<PlainLine text={fitCell("This permanently removes the comment on GitHub.", contentWidth)} fg={colors.muted} />}
+			subtitle={<PlainLine text={fitCell("This permanently removes the comment on GitLab.", contentWidth)} fg={colors.muted} />}
 			bodyPadding={1}
 			footer={
 				<HintRow

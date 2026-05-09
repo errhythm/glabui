@@ -22,16 +22,16 @@ const archMap = {
 	x64: "x64",
 }
 
-const help = `ghui ${packageJson.version}
+const help = `glabui ${packageJson.version}
 
-Terminal UI for GitHub pull requests.
+Terminal UI for GitLab merge requests.
 
 Usage:
-  ghui              Start the TUI
-  ghui upgrade      Upgrade ghui to the latest npm release
-  ghui -v, --version
+  glabui              Start the TUI
+  glabui upgrade      Upgrade glabui to the latest npm release
+  glabui -v, --version
                     Print the installed version
-  ghui -h, --help   Show this help message
+  glabui -h, --help   Show this help message
 `
 
 const run = (target, args = process.argv.slice(2)) => {

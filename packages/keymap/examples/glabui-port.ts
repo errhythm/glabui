@@ -1,5 +1,5 @@
 /**
- * Self-contained, compiling translation of ghui's keyboard surface using the
+ * Self-contained, compiling translation of glabui's keyboard surface using the
  * sweetened `context<C>()` API. Each layer's context is declared once with
  * `context<Ctx>()`; commands are then plain config objects passed positionally.
  *
@@ -10,9 +10,9 @@
 import { context, Keymap } from "../src/index.ts"
 import { type Scrollable, scrollCommands } from "../src/scroll.ts"
 
-// ─── Mocked ghui types (minimal subset) ────────────────────────────────────
+// ─── Mocked glabui types (minimal subset) ───────────────────────────────────
 
-interface PullRequest {
+interface MergeRequest {
 	readonly url: string
 	readonly state: "open" | "closed" | "merged"
 }
@@ -29,8 +29,8 @@ export interface CloseModalCtx {
 const Close = context<CloseModalCtx>()
 
 export const closeModalKeymap = Close(
-	{ id: "close-modal.cancel",  title: "Cancel",             keys: ["escape"], run: (s) => s.closeModal() },
-	{ id: "close-modal.confirm", title: "Close pull request", keys: ["return"], run: (s) => s.confirmClose() },
+	{ id: "close-modal.cancel",  title: "Cancel",              keys: ["escape"], run: (s) => s.closeModal() },
+	{ id: "close-modal.confirm", title: "Close merge request", keys: ["return"], run: (s) => s.confirmClose() },
 )
 
 // ─── MergeModal ────────────────────────────────────────────────────────────
@@ -128,11 +128,11 @@ export const diffCommentKeymap = DC(
 // ─── Detail full-view ──────────────────────────────────────────────────────
 
 export interface DetailCtx extends Scrollable {
-	readonly selectedPullRequest: PullRequest | null
+	readonly selectedMergeRequest: MergeRequest | null
 	readonly closeDetail: () => void
 	readonly openTheme: () => void
 	readonly openDiff: () => void
-	readonly closePullRequest: () => void
+	readonly closeMergeRequest: () => void
 	readonly openLabels: () => void
 	readonly openMerge: () => void
 	readonly toggleDraft: () => void
@@ -143,23 +143,23 @@ export interface DetailCtx extends Scrollable {
 
 const Detail = context<DetailCtx>()
 
-const requirePullRequest = (s: DetailCtx) =>
-	s.selectedPullRequest !== null ? true : "No pull request selected."
+const requireMergeRequest = (s: DetailCtx) =>
+	s.selectedMergeRequest !== null ? true : "No merge request selected."
 
 export const detailKeymap = Detail(
 	scrollCommands<DetailCtx>(),
 	{ id: "detail.close",        title: "Close",        keys: ["escape", "return"], run: (s) => s.closeDetail() },
 	{ id: "detail.theme",        title: "Theme",        keys: ["t"],                run: (s) => s.openTheme() },
-	{ id: "detail.diff",         title: "Open diff",    keys: ["d"], enabled: requirePullRequest, run: (s) => s.openDiff() },
-	{ id: "detail.close-pr",     title: "Close PR",     keys: ["x"],
-		enabled: (s) => s.selectedPullRequest?.state === "open" ? true : "Pull request is not open.",
-		run: (s) => s.closePullRequest() },
-	{ id: "detail.labels",       title: "Labels",       keys: ["l"], enabled: requirePullRequest, run: (s) => s.openLabels() },
-	{ id: "detail.merge",        title: "Merge",        keys: ["m", "shift+m"], enabled: requirePullRequest, run: (s) => s.openMerge() },
-	{ id: "detail.toggle-draft", title: "Toggle draft", keys: ["s", "shift+s"], enabled: requirePullRequest, run: (s) => s.toggleDraft() },
+	{ id: "detail.diff",         title: "Open diff",    keys: ["d"], enabled: requireMergeRequest, run: (s) => s.openDiff() },
+	{ id: "detail.close-mr",     title: "Close MR",     keys: ["x"],
+		enabled: (s) => s.selectedMergeRequest?.state === "open" ? true : "Merge request is not open.",
+		run: (s) => s.closeMergeRequest() },
+	{ id: "detail.labels",       title: "Labels",       keys: ["l"], enabled: requireMergeRequest, run: (s) => s.openLabels() },
+	{ id: "detail.merge",        title: "Merge",        keys: ["m", "shift+m"], enabled: requireMergeRequest, run: (s) => s.openMerge() },
+	{ id: "detail.toggle-draft", title: "Toggle draft", keys: ["s", "shift+s"], enabled: requireMergeRequest, run: (s) => s.toggleDraft() },
 	{ id: "detail.refresh",      title: "Refresh",      keys: ["r"],                run: (s) => s.refresh() },
-	{ id: "detail.open-browser", title: "Open",         keys: ["o"], enabled: requirePullRequest, run: (s) => s.openInBrowser() },
-	{ id: "detail.copy",         title: "Copy",         keys: ["y"], enabled: requirePullRequest, run: (s) => s.copyMetadata() },
+	{ id: "detail.open-browser", title: "Open",         keys: ["o"], enabled: requireMergeRequest, run: (s) => s.openInBrowser() },
+	{ id: "detail.copy",         title: "Copy",         keys: ["y"], enabled: requireMergeRequest, run: (s) => s.copyMetadata() },
 )
 
 // ─── Global / PR-list nav ──────────────────────────────────────────────────

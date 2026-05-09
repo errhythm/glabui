@@ -16,10 +16,10 @@ export const reviewLabel = (pullRequest: PullRequestItem) => REVIEW_LABEL[pullRe
 
 export const checkLabel = (pullRequest: PullRequestItem) => pullRequest.checkSummary
 
-const passingCheckConclusions = new Set<CheckConclusion>(["success", "neutral", "skipped"])
+const passingCheckConclusions = new Set<CheckConclusion>(["success", "skipped"])
 
 export const failingCheckNames = (pullRequest: PullRequestItem) =>
-	pullRequest.checks.flatMap((check) => (check.conclusion && !passingCheckConclusions.has(check.conclusion) ? [check.name] : []))
+	pullRequest.checks.flatMap((check) => (check.status && !passingCheckConclusions.has(check.status as CheckConclusion) ? [check.name] : []))
 
 export const pullRequestMetadataText = (pullRequest: PullRequestItem) => {
 	const lines = [pullRequest.title, `${pullRequest.repository} #${pullRequest.number}`, pullRequest.url]

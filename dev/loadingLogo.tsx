@@ -19,10 +19,10 @@ const renderer = await createCliRenderer({
 })
 
 const STATES = [
-	{ title: "Loading pull requests", hint: "Fetching latest open PRs" },
-	{ title: "Loading pull requests", hint: "Hydrating review checks" },
-	{ title: "Loading diff", hint: "Fetching patch from GitHub" },
-	{ title: "Loading pull request details", hint: "Expanding summary and checks" },
+	{ title: "Loading merge requests", hint: "Fetching latest open MRs" },
+	{ title: "Loading merge requests", hint: "Hydrating pipeline checks" },
+	{ title: "Loading diff", hint: "Fetching patch from GitLab" },
+	{ title: "Loading merge request details", hint: "Expanding summary and checks" },
 ] as const
 
 const LoadingLogoPlayground = () => {
@@ -49,7 +49,7 @@ const LoadingLogoPlayground = () => {
 
 	return (
 		<box width={width} height={height} flexDirection="column" backgroundColor={colors.background}>
-			<PlainLine text={centerCell("GHUI loading logo playground", width)} fg={colors.muted} bold />
+			<PlainLine text={centerCell("GLabUI loading logo playground", width)} fg={colors.muted} bold />
 			<LoadingLogoPane content={state} width={width} height={Math.max(1, height - 2)} frame={frame} />
 			<PlainLine text={centerCell("space/tab state  q quit  bun --watch hot reloads", width)} fg={colors.muted} />
 		</box>

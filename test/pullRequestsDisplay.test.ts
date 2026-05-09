@@ -115,10 +115,10 @@ describe("pullRequestMetadataText", () => {
 			checkStatus: "failing",
 			checkSummary: "checks 2/4",
 			checks: [
-				{ name: "lint", status: "completed", conclusion: "success" },
-				{ name: "test", status: "completed", conclusion: "failure" },
-				{ name: "build", status: "completed", conclusion: "timed_out" },
-				{ name: "docs", status: "completed", conclusion: "skipped" },
+				{ name: "lint", status: "success", stage: "test" },
+				{ name: "test", status: "failed", stage: "test" },
+				{ name: "build", status: "failed", stage: "build" },
+				{ name: "docs", status: "skipped", stage: "deploy" },
 			],
 		})
 
@@ -133,17 +133,17 @@ describe("pullRequestMetadataText", () => {
 })
 
 describe("failingCheckNames", () => {
-	test("treats failure, cancelled, and timed out conclusions as failing", () => {
+	test("treats failed, canceled, and running pipeline statuses as failing", () => {
 		expect(
 			failingCheckNames({
 				...open,
 				checks: [
-					{ name: "fail", status: "completed", conclusion: "failure" },
-					{ name: "cancelled", status: "completed", conclusion: "cancelled" },
-					{ name: "timeout", status: "completed", conclusion: "timed_out" },
-					{ name: "pending", status: "in_progress", conclusion: null },
+					{ name: "fail", status: "failed", stage: "test" },
+					{ name: "cancelled", status: "canceled", stage: "test" },
+					{ name: "running", status: "running", stage: "build" },
+					{ name: "ok", status: "success", stage: "test" },
 				],
 			}),
-		).toEqual(["fail", "cancelled", "timeout"])
+		).toEqual(["fail", "cancelled", "running"])
 	})
 })

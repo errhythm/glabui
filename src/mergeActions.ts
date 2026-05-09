@@ -1,27 +1,27 @@
 import type {
-	PullRequestItem,
-	PullRequestMergeAction,
-	PullRequestMergeInfo,
-	PullRequestMergeKind,
-	PullRequestMergeMethod,
-	PullRequestState,
+	MergeRequestItem,
+	MergeRequestMergeAction,
+	MergeRequestMergeInfo,
+	MergeRequestMergeKind,
+	MergeRequestMergeMethod,
+	MergeRequestState,
 	RepositoryMergeMethods,
 } from "./domain.js"
 
 export interface MergeKindDefinition {
-	readonly kind: PullRequestMergeKind
-	readonly title: (method: PullRequestMergeMethod) => string
-	readonly description: (method: PullRequestMergeMethod) => string
-	readonly pastTense: (method: PullRequestMergeMethod) => string
+	readonly kind: MergeRequestMergeKind
+	readonly title: (method: MergeRequestMergeMethod) => string
+	readonly description: (method: MergeRequestMergeMethod) => string
+	readonly pastTense: (method: MergeRequestMergeMethod) => string
 	readonly danger?: boolean
 	readonly refreshOnSuccess?: boolean
-	readonly optimisticState?: PullRequestState
+	readonly optimisticState?: MergeRequestState
 	readonly optimisticAutoMergeEnabled?: boolean
 	readonly methodAgnostic?: boolean
-	readonly isAvailable: (info: PullRequestMergeInfo) => boolean
+	readonly isAvailable: (info: MergeRequestMergeInfo) => boolean
 }
 
-const isCleanlyMergeable = (info: PullRequestMergeInfo) =>
+const isCleanlyMergeable = (info: MergeRequestMergeInfo) =>
 	info.state === "open" &&
 	!info.isDraft &&
 	info.mergeable === "mergeable" &&
@@ -42,110 +42,117 @@ const methodCopy = {
 	squash: {
 		verb: "Squash and merge",
 		pastTense: "Merged",
-		autoDescription: "Squash and merge automatically once GitHub requirements pass.",
-		adminDescription: "Bypass merge requirements and squash with --admin.",
+		autoDescription: "Squash and merge automatically once GitLab pipeline passes.",
+		adminDescription: "Bypass merge requirements and squash merge.",
 		cliFlag: "--squash",
 	},
 	merge: {
 		verb: "Create a merge commit",
 		pastTense: "Merged",
-		autoDescription: "Create a merge commit automatically once GitHub requirements pass.",
-		adminDescription: "Bypass merge requirements and create a merge commit with --admin.",
+		autoDescription: "Create a merge commit automatically once GitLab pipeline passes.",
+		adminDescription: "Bypass merge requirements and create a merge commit.",
 		cliFlag: "--merge",
 	},
 	rebase: {
 		verb: "Rebase and merge",
 		pastTense: "Rebased",
-		autoDescription: "Rebase and merge automatically once GitHub requirements pass.",
-		adminDescription: "Bypass merge requirements and rebase with --admin.",
+		autoDescription: "Rebase and merge automatically once GitLab pipeline passes.",
+		adminDescription: "Bypass merge requirements and rebase merge.",
 		cliFlag: "--rebase",
 	},
-} as const satisfies Record<PullRequestMergeMethod, MethodCopy>
+} as const satisfies Record<MergeRequestMergeMethod, MethodCopy>
 
 const mergeKindDefinitions = {
 	now: {
 		kind: "now",
 		title: (method) => `${methodCopy[method].verb} now`,
-		description: () => "Merge this pull request and delete the branch.",
+		description: () => "Merge this merge request and delete the branch.",
 		pastTense: (method) => methodCopy[method].pastTense,
 		refreshOnSuccess: true,
 		optimisticState: "merged",
 		isAvailable: isCleanlyMergeable,
 	},
-	auto: {
-		kind: "auto",
-		title: () => "Enable auto-merge",
+	when_pipeline_succeeds: {
+		kind: "when_pipeline_succeeds",
+		title: () => "Merge when pipeline succeeds",
 		description: (method) => methodCopy[method].autoDescription,
-		pastTense: () => "Enabled auto-merge",
+		pastTense: () => "Set to merge when pipeline succeeds",
 		optimisticAutoMergeEnabled: true,
 		isAvailable: (info) => info.state === "open" && !info.autoMergeEnabled && !info.isDraft && info.mergeable !== "conflicting",
 	},
 	"disable-auto": {
 		kind: "disable-auto",
-		title: () => "Disable auto-merge",
-		description: () => "Cancel the pending GitHub auto-merge request.",
-		pastTense: () => "Disabled auto-merge",
+		title: () => "Cancel auto-merge",
+		description: () => "Cancel the pending GitLab merge when pipeline succeeds.",
+		pastTense: () => "Cancelled auto-merge",
 		optimisticAutoMergeEnabled: false,
 		methodAgnostic: true,
 		isAvailable: (info) => info.state === "open" && info.autoMergeEnabled,
 	},
 	admin: {
 		kind: "admin",
-		title: (method) => `${methodCopy[method].verb} (admin)`,
+		title: (method) => `${methodCopy[method].verb} (force)`,
 		description: (method) => methodCopy[method].adminDescription,
-		pastTense: () => "Admin merged",
+		pastTense: () => "Force merged",
 		danger: true,
 		refreshOnSuccess: true,
 		optimisticState: "merged",
 		isAvailable: (info) => info.viewerCanMergeAsAdmin && info.state === "open" && !info.isDraft && info.mergeable !== "conflicting",
 	},
-} as const satisfies Record<PullRequestMergeKind, MergeKindDefinition>
+} as const satisfies Record<MergeRequestMergeKind, MergeKindDefinition>
 
 export const mergeKinds: readonly MergeKindDefinition[] = Object.values(mergeKindDefinitions)
 
-export const availableMergeKinds = (info: PullRequestMergeInfo | null): readonly MergeKindDefinition[] => {
+export const availableMergeKinds = (info: MergeRequestMergeInfo | null): readonly MergeKindDefinition[] => {
 	if (!info) return []
 	return mergeKinds.filter((kind) => kind.isAvailable(info))
 }
 
-export const visibleMergeKinds = (info: PullRequestMergeInfo | null, allowed: RepositoryMergeMethods | null, selected: PullRequestMergeMethod): readonly MergeKindDefinition[] => {
+export const visibleMergeKinds = (
+	info: MergeRequestMergeInfo | null,
+	allowed: RepositoryMergeMethods | null,
+	selected: MergeRequestMergeMethod,
+): readonly MergeKindDefinition[] => {
 	if (!allowed || !info) return []
-	// Draft PRs surface the same kinds they would once marked ready; the merge
-	// flow handles `gh pr ready` ahead of the actual merge.
 	const queryInfo = info.isDraft ? { ...info, isDraft: false } : info
 	const available = availableMergeKinds(queryInfo)
 	if (allowed[selected]) return available
 	return available.filter((kind) => kind.methodAgnostic)
 }
 
-export const requiresMarkReady = (info: PullRequestMergeInfo | null, kind: MergeKindDefinition): boolean => Boolean(info?.isDraft && !kind.methodAgnostic)
+export const requiresMarkReady = (info: MergeRequestMergeInfo | null, kind: MergeKindDefinition): boolean => Boolean(info?.isDraft && !kind.methodAgnostic)
 
-export const mergeKindRowTitle = (kind: MergeKindDefinition, method: PullRequestMergeMethod, fromDraft: boolean): string => {
+export const mergeKindRowTitle = (kind: MergeKindDefinition, method: MergeRequestMergeMethod, fromDraft: boolean): string => {
 	const baseTitle = kind.title(method)
 	if (!fromDraft || kind.methodAgnostic) return baseTitle
 	return `Mark ready & ${baseTitle.charAt(0).toLowerCase()}${baseTitle.slice(1)}`
 }
 
-export const getMergeKindDefinition = (kind: PullRequestMergeKind): MergeKindDefinition => mergeKindDefinitions[kind]
+export const getMergeKindDefinition = (kind: MergeRequestMergeKind): MergeKindDefinition => mergeKindDefinitions[kind]
 
-export const mergeActionCliArgs = (action: PullRequestMergeAction): readonly string[] => {
+export const mergeActionCliArgs = (action: MergeRequestMergeAction): readonly string[] => {
 	if (action.kind === "disable-auto") return ["--disable-auto"]
-	const methodFlag = methodCopy[action.method].cliFlag
-	if (action.kind === "now") return [methodFlag, "--delete-branch"]
-	if (action.kind === "auto") return [methodFlag, "--auto", "--delete-branch"]
-	return [methodFlag, "--admin", "--delete-branch"]
+	if (action.kind === "when_pipeline_succeeds") return ["--when-pipeline-succeeds"]
+	if (action.kind === "admin") return ["--force"]
+	// now
+	if (action.method === "squash") return ["--squash"]
+	if (action.method === "rebase") return ["--rebase"]
+	return []
 }
 
-export const mergeInfoFromPullRequest = (pullRequest: PullRequestItem): PullRequestMergeInfo => ({
-	repository: pullRequest.repository,
-	number: pullRequest.number,
-	title: pullRequest.title,
-	state: pullRequest.state,
-	isDraft: pullRequest.reviewStatus === "draft",
+export const mergeInfoFromMergeRequest = (mr: MergeRequestItem): MergeRequestMergeInfo => ({
+	repository: mr.repository,
+	number: mr.number,
+	title: mr.title,
+	state: mr.state,
+	isDraft: mr.reviewStatus === "draft",
 	mergeable: "unknown",
-	reviewStatus: pullRequest.reviewStatus,
-	checkStatus: pullRequest.checkStatus,
-	checkSummary: pullRequest.checkSummary,
-	autoMergeEnabled: pullRequest.autoMergeEnabled,
+	reviewStatus: mr.reviewStatus,
+	checkStatus: mr.checkStatus,
+	checkSummary: mr.checkSummary,
+	autoMergeEnabled: mr.autoMergeEnabled,
 	viewerCanMergeAsAdmin: false,
 })
+
+// alias for UI compat
+export const mergeInfoFromPullRequest = mergeInfoFromMergeRequest

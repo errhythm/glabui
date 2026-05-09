@@ -132,7 +132,7 @@ export const PullRequestDiffPane = ({
 			<box height={height} flexDirection="column">
 				<DiffPaneHeader pullRequest={pullRequest} paneWidth={paneWidth} />
 				<Divider width={paneWidth} />
-				<LoadingPane content={{ title: `${loadingIndicator} Loading diff`, hint: "Fetching patch from GitHub" }} width={paneWidth} height={Math.max(1, height - 2)} />
+				<LoadingPane content={{ title: `${loadingIndicator} Loading diff`, hint: "Fetching patch from GitLab" }} width={paneWidth} height={Math.max(1, height - 2)} />
 			</box>
 		)
 	}

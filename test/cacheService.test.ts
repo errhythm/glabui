@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 const tempCachePath = async () => {
-	const dir = await mkdtemp(join(tmpdir(), "ghui-cache-"))
+	const dir = await mkdtemp(join(tmpdir(), "glabui-cache-"))
 	tempDirs.push(dir)
 	return join(dir, "cache.sqlite")
 }
@@ -27,6 +27,7 @@ const pullRequest = (number: number, overrides: Partial<PullRequestItem> = {}): 
 	repository: "owner/repo",
 	author: "author",
 	headRefOid: `sha-${number}`,
+	headRefName: `feature/${number}`,
 	number,
 	title: `PR ${number}`,
 	body: "Body",
@@ -35,15 +36,16 @@ const pullRequest = (number: number, overrides: Partial<PullRequestItem> = {}): 
 	deletions: 2,
 	changedFiles: 3,
 	state: "open",
+	isDraft: false,
 	reviewStatus: "none",
 	checkStatus: "passing",
 	checkSummary: "1/1",
-	checks: [{ name: "ci", status: "completed", conclusion: "success" }],
+	checks: [{ name: "ci", status: "success", stage: "test" }],
 	autoMergeEnabled: false,
 	detailLoaded: true,
 	createdAt: new Date(`2026-01-${String(number).padStart(2, "0")}T00:00:00Z`),
 	closedAt: null,
-	url: `https://github.com/owner/repo/pull/${number}`,
+	url: `https://gitlab.com/owner/repo/-/merge_requests/${number}`,
 	...overrides,
 })
 
@@ -206,7 +208,7 @@ describe("CacheService", () => {
 	})
 
 	test("layerFromPath falls back to disabled cache when startup fails", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "ghui-cache-fallback-"))
+		const dir = await mkdtemp(join(tmpdir(), "glabui-cache-fallback-"))
 		tempDirs.push(dir)
 		const blockedParent = join(dir, "not-a-directory")
 		await Bun.write(blockedParent, "blocked")

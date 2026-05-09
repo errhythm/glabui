@@ -1,20 +1,20 @@
 {
-	"name": "@kitlangton/ghui",
+	"name": "@errhythm/glabui",
 	"version": "0.7.1",
-	"description": "Terminal UI for GitHub pull requests",
+	"description": "Terminal UI for GitLab merge requests",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/kitlangton/ghui.git"
+		"url": "git+https://github.com/errhythm/glabui.git"
 	},
 	"bugs": {
-		"url": "https://github.com/kitlangton/ghui/issues"
+		"url": "https://github.com/errhythm/glabui/issues"
 	},
-	"homepage": "https://github.com/kitlangton/ghui#readme",
+	"homepage": "https://github.com/errhythm/glabui#readme",
 	"keywords": [
-		"github",
-		"pull-requests",
+		"gitlab",
+		"merge-requests",
 		"terminal",
 		"tui",
 		"bun"
@@ -32,7 +32,7 @@
 		"registry": "https://registry.npmjs.org/"
 	},
 	"bin": {
-		"ghui": "bin/ghui.js"
+		"glabui": "bin/glabui.js"
 	},
 	"scripts": {
 		"build:cli": "bun run dev/build-cli.ts",
@@ -41,17 +41,16 @@
 		"changeset": "npm exec --package @changesets/cli@2.31.0 -- changeset",
 		"changeset:status": "npm exec --package @changesets/cli@2.31.0 -- changeset status",
 		"changeset:version": "npm exec --package @changesets/cli@2.31.0 -- changeset version",
-		"dev": "GHUI_MOTEL_PORT=${GHUI_MOTEL_PORT:-27686} bun --watch src/index.tsx",
+		"dev": "GLABUI_MOTEL_PORT=${GLABUI_MOTEL_PORT:-27686} bun --watch src/index.tsx",
 		"dev:logo": "bun --watch dev/loadingLogo.tsx",
 		"start": "bun run src/index.tsx",
-		"start:mock": "GHUI_MOCK_PR_COUNT=400 GHUI_MOCK_REPO_COUNT=4 bun run src/index.tsx",
 		"test": "bun test test",
 		"typecheck": "tsc --noEmit",
 		"lint": "oxlint --tsconfig tsconfig.json src/ test/",
 		"format": "oxfmt src/ test/ dev/",
 		"format:check": "oxfmt --check src/ test/ dev/",
 		"package:smoke": "bun run dev/package-smoke.ts",
-		"prepublishOnly": "printf '%s\n' 'Publish dist/npm/main, not the source checkout.' && exit 1",
+		"prepublishOnly": "printf '%s\\n' 'Publish dist/npm/main, not the source checkout.' && exit 1",
 		"prepack": "bun run build:cli"
 	},
 	"workspaces": [

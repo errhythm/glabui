@@ -11,7 +11,7 @@ export interface StoredThemeConfigInput {
 	readonly lightTheme?: unknown
 }
 
-const defaultDarkThemeId = "ghui" satisfies ThemeId
+const defaultDarkThemeId = "glabui" satisfies ThemeId
 const defaultLightThemeId = "catppuccin-latte" satisfies ThemeId
 
 export const defaultThemeConfig: ThemeConfig = { mode: "fixed", theme: defaultDarkThemeId }

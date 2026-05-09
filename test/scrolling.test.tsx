@@ -30,7 +30,7 @@ console.error = (...args: unknown[]) => {
 // limited to test-only modules — App is dynamically imported.
 process.env.GHUI_MOCK_PR_COUNT = "80"
 process.env.GHUI_MOCK_REPO_COUNT = "4"
-process.env.GHUI_PR_PAGE_SIZE = "100"
+process.env.GLABUI_PR_PAGE_SIZE = "100"
 
 const loadApp = async () => {
 	const { createTestRenderer } = await import("@opentui/core/testing")

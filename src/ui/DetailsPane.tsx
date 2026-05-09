@@ -316,7 +316,7 @@ const deduplicateChecks = (checks: readonly CheckItem[]): CheckItem[] => {
 	const seen = new Map<string, CheckItem>()
 	for (const check of checks) {
 		const existing = seen.get(check.name)
-		if (!existing || (check.status === "completed" && existing.status !== "completed")) {
+		if (!existing || (check.status === "success" && existing.status !== "success")) {
 			seen.set(check.name, check)
 		}
 	}
@@ -334,12 +334,11 @@ const CHECK_DISPLAY: Record<CheckKind, { icon: string; color: string }> = {
 }
 
 const checkKind = (check: CheckItem): CheckKind => {
-	if (check.status === "completed") {
-		if (check.conclusion === "success" || check.conclusion === "neutral" || check.conclusion === "skipped") return "passing"
-		if (check.conclusion === "failure") return "failing"
-		return "missing"
-	}
-	if (check.status === "in_progress") return "in-progress"
+	if (check.status === "success" || check.status === "skipped") return "passing"
+	if (check.status === "failed" || check.status === "canceled") return "failing"
+	if (check.status === "running" || check.status === "preparing") return "in-progress"
+	if (check.status === "pending" || check.status === "created" || check.status === "waiting_for_resource") return "queued"
+	// manual, scheduled → queued
 	return "queued"
 }
 
