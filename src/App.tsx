@@ -571,18 +571,21 @@ const listIssuesAtom = githubRuntime.fn<{
 	readonly repository: string | null
 	readonly query: string
 	readonly primaryBranches: Readonly<Record<string, string>>
+	readonly cwd: string | null
 }>()((input) => GitLabService.use((gitlab) => gitlab.listIssues(input)))
 const listEpicsAtom = githubRuntime.fn<{
 	readonly mode: "assigned" | "searchable"
 	readonly query: string
 	readonly labelFilter: string | null
 	readonly groupPath: string | null
+	readonly cwd: string | null
 }>()((input) => GitLabService.use((gitlab) => gitlab.listEpics(input)))
 const listEpicIssuesAtom = githubRuntime.fn<{
 	readonly groupPath: string
 	readonly epicIid: string
 	readonly primaryBranches: Readonly<Record<string, string>>
-}>()((input) => GitLabService.use((gitlab) => gitlab.listEpicIssues(input.groupPath, input.epicIid, input.primaryBranches)))
+	readonly cwd: string | null
+}>()((input) => GitLabService.use((gitlab) => gitlab.listEpicIssues(input.groupPath, input.epicIid, input.primaryBranches, input.cwd)))
 const switchWorkspaceBranchAcrossWorkspaceAtom = githubRuntime.fn<SwitchWorkspaceBranchInput>()((input) =>
 	WorkspaceService.use((workspace) => workspace.switchBranchAcrossWorkspace(input)),
 )
@@ -1069,6 +1072,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const pullRequestComments = useAtomValue(pullRequestCommentsAtom)
 	const pullRequestCommentsLoaded = useAtomValue(pullRequestCommentsLoadedAtom)
 	const selectedRepository = viewRepository(activeView)
+	const firstGitLabRepo = workspaceRepos.find((r) => r.isGitLab)?.path ?? null
+
 	const inferredEpicGroupPath =
 		selectedRepository?.split("/").slice(0, -1).join("/") ||
 		workspaceRepos
@@ -1730,6 +1735,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			repository: selectedRepository,
 			query: issuesFilterQuery,
 			primaryBranches: appSettings.primaryBranches,
+			cwd: firstGitLabRepo,
 		})
 			.then((items) => {
 				setIssues(items)
@@ -1740,12 +1746,12 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				setIssuesStatus("error")
 				setIssuesError(errorMessage(error))
 			})
-	}, [appSettings.primaryBranches, appSettings.workspaceRoot, issuesFilterQuery, loadIssues, selectedRepository, setIssues, setIssuesError, setIssuesStatus])
+	}, [appSettings.primaryBranches, appSettings.workspaceRoot, issuesFilterQuery, loadIssues, selectedRepository, setIssues, setIssuesError, setIssuesStatus, firstGitLabRepo])
 
 	useEffect(() => {
 		setEpicsStatus("loading")
 		setEpicsError(null)
-		void loadEpics({ mode: appSettings.epicMode, query: epicsFilterQuery, labelFilter: appSettings.epicLabelFilter, groupPath: inferredEpicGroupPath })
+		void loadEpics({ mode: appSettings.epicMode, query: epicsFilterQuery, labelFilter: appSettings.epicLabelFilter, groupPath: inferredEpicGroupPath, cwd: firstGitLabRepo })
 			.then((items) => {
 				setEpics(items)
 				setEpicsStatus("ready")
@@ -1755,7 +1761,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				setEpicsStatus("error")
 				setEpicsError(errorMessage(error))
 			})
-	}, [appSettings.epicLabelFilter, appSettings.epicMode, epicsFilterQuery, inferredEpicGroupPath, loadEpics, setEpics, setEpicsError, setEpicsStatus])
+	}, [appSettings.epicLabelFilter, appSettings.epicMode, epicsFilterQuery, inferredEpicGroupPath, loadEpics, setEpics, setEpicsError, setEpicsStatus, firstGitLabRepo])
 
 	useEffect(() => {
 		if (pullRequestStatus !== "ready" || !selectedPullRequest) return
@@ -3224,6 +3230,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				repository: selectedRepository,
 				query: issuesFilterQuery,
 				primaryBranches: appSettings.primaryBranches,
+				cwd: firstGitLabRepo,
 			})
 				.then((items) => {
 					setIssues(items)
@@ -3239,7 +3246,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		}
 		setEpicsStatus("loading")
 		setEpicsError(null)
-		void loadEpics({ mode: appSettings.epicMode, query: epicsFilterQuery, labelFilter: appSettings.epicLabelFilter, groupPath: inferredEpicGroupPath })
+		void loadEpics({ mode: appSettings.epicMode, query: epicsFilterQuery, labelFilter: appSettings.epicLabelFilter, groupPath: inferredEpicGroupPath, cwd: firstGitLabRepo })
 			.then((items) => {
 				setEpics(items)
 				setEpicsStatus("ready")
@@ -3430,7 +3437,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			},
 			selectedEpicCheckoutBranches: () => {
 				if (!selectedEpic) return
-				void loadEpicIssues({ groupPath: selectedEpic.groupPath, epicIid: selectedEpic.iid, primaryBranches: appSettings.primaryBranches })
+				void loadEpicIssues({ groupPath: selectedEpic.groupPath, epicIid: selectedEpic.iid, primaryBranches: appSettings.primaryBranches, cwd: firstGitLabRepo })
 					.then((epicIssues) => {
 						const issuesWithBranches = epicIssues.filter((issue) => issue.primaryBranch?.trim())
 						if (issuesWithBranches.length === 0) {
@@ -3482,7 +3489,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			},
 			selectedEpicCreateMergeRequests: () => {
 				if (!selectedEpic) return
-				void loadEpicIssues({ groupPath: selectedEpic.groupPath, epicIid: selectedEpic.iid, primaryBranches: appSettings.primaryBranches })
+				void loadEpicIssues({ groupPath: selectedEpic.groupPath, epicIid: selectedEpic.iid, primaryBranches: appSettings.primaryBranches, cwd: firstGitLabRepo })
 					.then((epicIssues) => {
 						const openIssues = epicIssues.filter((issue) => issue.state === "opened" && issue.primaryBranch)
 						if (openIssues.length === 0) {

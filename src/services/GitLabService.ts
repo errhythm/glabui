@@ -469,6 +469,7 @@ export class GitLabService extends Context.Service<
 			repository: string | null
 			query: string
 			primaryBranches: Readonly<Record<string, string>>
+			cwd: string | null
 		}) => Effect.Effect<readonly IssueItem[], CommandError | JsonParseError | Schema.SchemaError>
 		readonly getIssueDetail: (repository: string, number: number, primaryBranch: string | null) => Effect.Effect<IssueItem, CommandError | JsonParseError | Schema.SchemaError>
 		readonly listEpics: (input: {
@@ -476,11 +477,13 @@ export class GitLabService extends Context.Service<
 			query: string
 			labelFilter: string | null
 			groupPath: string | null
+			cwd: string | null
 		}) => Effect.Effect<readonly EpicItem[], CommandError | JsonParseError | Schema.SchemaError>
 		readonly listEpicIssues: (
 			groupPath: string,
 			epicIid: string,
 			primaryBranches: Readonly<Record<string, string>>,
+			cwd: string | null,
 		) => Effect.Effect<readonly IssueItem[], CommandError | JsonParseError | Schema.SchemaError>
 		readonly getMergeRequestMergeInfo: (input: { repository: string; number: number }) => Effect.Effect<MergeRequestMergeInfo, CommandError | JsonParseError | Schema.SchemaError>
 		readonly getMergeRequestDiff: (repository: string, number: number, commitId: string) => Effect.Effect<readonly GitLabDiff[], CommandError | JsonParseError | Schema.SchemaError>
@@ -662,12 +665,13 @@ export class GitLabService extends Context.Service<
 					} satisfies MergeRequestItem
 				})
 
-			const listIssues = (input: { mode: IssueListMode; repository: string | null; query: string; primaryBranches: Readonly<Record<string, string>> }) =>
+			const listIssues = (input: { mode: IssueListMode; repository: string | null; query: string; primaryBranches: Readonly<Record<string, string>>; cwd: string | null }) =>
 				Effect.gen(function* () {
 					const username = yield* getCurrentUsername()
 					const encodedQuery = encodeURIComponent(input.query.trim())
 					const queryParam = input.query.trim().length > 0 ? `&search=${encodedQuery}` : ""
-					const loadIssuesForEndpoint = (endpoint: string) => runner.runSchema(RawIssueListSchema, "glab", ["api", endpoint])
+					const loadIssuesForEndpoint = (endpoint: string) =>
+						input.cwd ? runner.runSchema(RawIssueListSchema, "glab", ["api", endpoint], { cwd: input.cwd }) : runner.runSchema(RawIssueListSchema, "glab", ["api", endpoint])
 					const rawIssues = input.repository
 						? yield* loadIssuesForEndpoint(`projects/${encodeProjectPath(input.repository)}/issues?state=opened&per_page=100${queryParam}`)
 						: input.mode === "searchable"
@@ -695,7 +699,7 @@ export class GitLabService extends Context.Service<
 					return toIssueItem(raw, repository, primaryBranch)
 				})
 
-			const listEpics = (input: { mode: EpicListMode; query: string; labelFilter: string | null; groupPath: string | null }) =>
+			const listEpics = (input: { mode: EpicListMode; query: string; labelFilter: string | null; groupPath: string | null; cwd: string | null }) =>
 				Effect.gen(function* () {
 					const username = yield* getCurrentUsername()
 					if (!input.groupPath) return [] as readonly EpicItem[]
@@ -704,7 +708,9 @@ export class GitLabService extends Context.Service<
 					const assigneeArg = input.mode === "assigned" ? `, authorUsername: ${quoteGraphql(username)}` : ""
 					const searchArg = input.query.trim().length > 0 ? `, search: ${quoteGraphql(input.query.trim())}` : ""
 					const query = `query { group(fullPath: ${quoteGraphql(input.groupPath)}) { epics(first: 100, state: opened${assigneeArg}${labelArg}${searchArg}) { nodes { id iid title webUrl description labels { nodes { title } } } } } }`
-					const result = yield* runner.run("glab", ["api", "graphql", "-f", `query=${query}`])
+					const result = input.cwd
+						? yield* runner.run("glab", ["api", "graphql", "-f", `query=${query}`], { cwd: input.cwd })
+						: yield* runner.run("glab", ["api", "graphql", "-f", `query=${query}`])
 					const parsed = JSON.parse(result.stdout) as {
 						readonly data?: {
 							readonly group?: {
@@ -718,12 +724,12 @@ export class GitLabService extends Context.Service<
 					return nodes.map((node) => toEpicItem(node, input.groupPath!, 0, 0, 0))
 				})
 
-			const listEpicIssues = (groupPath: string, epicIid: string, primaryBranches: Readonly<Record<string, string>>) =>
+			const listEpicIssues = (groupPath: string, epicIid: string, primaryBranches: Readonly<Record<string, string>>, cwd: string | null) =>
 				Effect.gen(function* () {
 					const endpoint = `groups/${encodeURIComponent(groupPath)}/epics/${epicIid}/issues?per_page=100`
-					const rawIssues = yield* runner
-						.runSchema(RawIssueListSchema, "glab", ["api", endpoint])
-						.pipe(Effect.catch(() => Effect.succeed([] as Schema.Schema.Type<typeof RawIssueSchema>[])))
+					const rawIssues = yield* (
+						cwd ? runner.runSchema(RawIssueListSchema, "glab", ["api", endpoint], { cwd }) : runner.runSchema(RawIssueListSchema, "glab", ["api", endpoint])
+					).pipe(Effect.catch(() => Effect.succeed([] as Schema.Schema.Type<typeof RawIssueSchema>[])))
 					return rawIssues.map((issue) => {
 						const repo = issue.references?.full?.split("#")?.shift()?.trim() ?? glabProjectPathFromUrl(issue.web_url).replace(/\/-\/issues\/.*$/, "")
 						const issueKey = issue.references?.full ?? `${repo}#${issue.iid}`
