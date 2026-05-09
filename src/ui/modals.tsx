@@ -33,6 +33,7 @@ import {
 	TextLine,
 	TokenLine,
 	type Token,
+	trimCell,
 } from "./primitives.js"
 import { labelColor, shortRepoName } from "./pullRequests.js"
 
@@ -138,6 +139,50 @@ export interface CommandPaletteState {
 export interface OpenRepositoryModalState {
 	readonly query: string
 	readonly error: string | null
+}
+
+export interface EpicIssueBranchModalState {
+	readonly mode: "create" | "set"
+	readonly issueNumber: number
+	readonly issueTitle: string
+	readonly repository: string
+	readonly branchInput: string
+	readonly existingBranches: readonly string[]
+	readonly primaryBranch: string | null
+	readonly running: boolean
+	readonly error: string | null
+}
+
+export const initialEpicIssueBranchModalState: EpicIssueBranchModalState = {
+	mode: "create",
+	issueNumber: 0,
+	issueTitle: "",
+	repository: "",
+	branchInput: "",
+	existingBranches: [],
+	primaryBranch: null,
+	running: false,
+	error: null,
+}
+
+export interface EpicNewIssueModalState {
+	readonly epicTitle: string
+	readonly epicIid: string
+	readonly epicGroupPath: string
+	readonly projectPath: string
+	readonly titleInput: string
+	readonly running: boolean
+	readonly error: string | null
+}
+
+export const initialEpicNewIssueModalState: EpicNewIssueModalState = {
+	epicTitle: "",
+	epicIid: "",
+	epicGroupPath: "",
+	projectPath: "",
+	titleInput: "",
+	running: false,
+	error: null,
 }
 
 export interface SettingsModalState {
@@ -465,6 +510,8 @@ export type Modal = Data.TaggedEnum<{
 	CommandPalette: CommandPaletteState
 	OpenRepository: OpenRepositoryModalState
 	Settings: SettingsModalState
+	EpicIssueBranch: EpicIssueBranchModalState
+	EpicNewIssue: EpicNewIssueModalState
 }>
 
 export const Modal = Data.taggedEnum<Modal>()
@@ -487,6 +534,8 @@ export const modalInitialStates = {
 	CommandPalette: initialCommandPaletteState,
 	OpenRepository: initialOpenRepositoryModalState,
 	Settings: initialSettingsModalState,
+	EpicIssueBranch: initialEpicIssueBranchModalState,
+	EpicNewIssue: initialEpicNewIssueModalState,
 } as const satisfies { [Tag in Exclude<ModalTag, "None">]: ModalState<Tag> }
 
 export const OpenRepositoryModal = ({
@@ -1401,6 +1450,131 @@ export const ThemeModal = ({
 						</TextLine>
 					)
 				})
+			)}
+		</StandardModal>
+	)
+}
+
+export const EpicIssueBranchModal = ({
+	state,
+	modalWidth,
+	modalHeight,
+	offsetLeft,
+	offsetTop,
+}: {
+	state: EpicIssueBranchModalState
+	modalWidth: number
+	modalHeight: number
+	offsetLeft: number
+	offsetTop: number
+}) => {
+	const { contentWidth } = standardModalDims(modalWidth, modalHeight)
+	const title = state.mode === "create" ? "New Branch" : "Set Primary Branch"
+	const placeholder = state.mode === "create" ? `issue-${state.issueNumber}-...` : "branch-name"
+
+	return (
+		<StandardModal
+			left={offsetLeft}
+			top={offsetTop}
+			width={modalWidth}
+			height={modalHeight}
+			title={title}
+			headerRight={{ text: `#${state.issueNumber}` }}
+			subtitle={
+				<TextLine>
+					<span fg={colors.count}>› </span>
+					<span fg={state.branchInput.length > 0 ? colors.text : colors.muted}>
+						{fitCell(state.branchInput.length > 0 ? state.branchInput : placeholder, Math.max(1, contentWidth - 2))}
+					</span>
+				</TextLine>
+			}
+			bodyPadding={1}
+			footer={
+				<HintRow
+					items={[
+						{ key: "enter", label: state.mode === "create" ? "create + set primary" : "set primary" },
+						{ key: "ctrl-u", label: "clear" },
+						{ key: "esc", label: "cancel" },
+					]}
+				/>
+			}
+		>
+			{state.error ? (
+				<PlainLine text={fitCell(state.error, contentWidth)} fg={colors.error} />
+			) : state.running ? (
+				<PlainLine text="Running..." fg={colors.muted} />
+			) : (
+				<>
+					<PlainLine text={fitCell(trimCell(state.issueTitle, contentWidth), contentWidth)} fg={colors.count} />
+					{state.existingBranches.length > 0 ? (
+						<>
+							<PlainLine text={fitCell("Existing branches:", contentWidth)} fg={colors.muted} />
+							{state.existingBranches.slice(0, 4).map((b) => (
+								<TextLine key={b}>
+									<span fg={b === state.primaryBranch ? colors.status.passing : colors.text}>{fitCell(`  ${b === state.primaryBranch ? "★ " : "  "}${b}`, contentWidth)}</span>
+								</TextLine>
+							))}
+						</>
+					) : (
+						<PlainLine text={fitCell("No branches found for this issue.", contentWidth)} fg={colors.muted} />
+					)}
+				</>
+			)}
+		</StandardModal>
+	)
+}
+
+export const EpicNewIssueModal = ({
+	state,
+	modalWidth,
+	modalHeight,
+	offsetLeft,
+	offsetTop,
+}: {
+	state: EpicNewIssueModalState
+	modalWidth: number
+	modalHeight: number
+	offsetLeft: number
+	offsetTop: number
+}) => {
+	const { contentWidth } = standardModalDims(modalWidth, modalHeight)
+
+	return (
+		<StandardModal
+			left={offsetLeft}
+			top={offsetTop}
+			width={modalWidth}
+			height={modalHeight}
+			title="New Issue"
+			headerRight={{ text: `#${state.epicIid}` }}
+			subtitle={
+				<TextLine>
+					<span fg={colors.count}>› </span>
+					<span fg={state.titleInput.length > 0 ? colors.text : colors.muted}>
+						{fitCell(state.titleInput.length > 0 ? state.titleInput : "Issue title...", Math.max(1, contentWidth - 2))}
+					</span>
+				</TextLine>
+			}
+			bodyPadding={1}
+			footer={
+				<HintRow
+					items={[
+						{ key: "enter", label: "create + link to epic" },
+						{ key: "ctrl-u", label: "clear" },
+						{ key: "esc", label: "cancel" },
+					]}
+				/>
+			}
+		>
+			{state.error ? (
+				<PlainLine text={fitCell(state.error, contentWidth)} fg={colors.error} />
+			) : state.running ? (
+				<PlainLine text="Creating issue..." fg={colors.muted} />
+			) : (
+				<>
+					<PlainLine text={fitCell(`Epic: ${trimCell(state.epicTitle, contentWidth - 6)}`, contentWidth)} fg={colors.muted} />
+					<PlainLine text={fitCell(`Project: ${state.projectPath}`, contentWidth)} fg={colors.muted} />
+				</>
 			)}
 		</StandardModal>
 	)

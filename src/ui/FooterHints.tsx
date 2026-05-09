@@ -73,8 +73,8 @@ const workspaceHints = (ctx: HintsContext): readonly HintItem[] => [
 
 const epicIssueFocusHints: readonly HintItem[] = [
 	{ key: "↑↓", label: "move issue" },
-	{ key: "b", label: "checkout" },
-	{ key: "m", label: "bulk mr" },
+	{ key: "n", label: "new branch" },
+	{ key: "b", label: "set primary" },
 	{ key: "o", label: "browser" },
 	{ key: "esc", label: "back to epics" },
 ]
@@ -84,6 +84,7 @@ const epicsHints = (ctx: HintsContext): readonly HintItem[] => {
 	return [
 		{ key: "/", label: "filter" },
 		{ key: "enter", label: "browse issues", when: ctx.hasSelection },
+		{ key: "N", label: "new issue", when: ctx.hasSelection },
 		{ key: "c", label: "checkout", when: ctx.hasSelection },
 		{ key: "m", label: "bulk mr", when: ctx.hasSelection },
 		{ key: "o", label: "browser", when: ctx.hasSelection },

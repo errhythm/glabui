@@ -473,6 +473,14 @@ export class GitLabService extends Context.Service<
 		}) => Effect.Effect<readonly IssueItem[], CommandError | JsonParseError | Schema.SchemaError>
 		readonly getIssueDetail: (repository: string, number: number, primaryBranch: string | null) => Effect.Effect<IssueItem, CommandError | JsonParseError | Schema.SchemaError>
 		readonly discoverEpicGroupPath: (cwd: string | null) => Effect.Effect<string | null, CommandError | JsonParseError | Schema.SchemaError>
+		readonly createIssue: (input: {
+			readonly repository: string
+			readonly title: string
+			readonly description: string
+			readonly epicIid: string
+			readonly epicGroupPath: string
+			readonly cwd: string | null
+		}) => Effect.Effect<{ webUrl: string; number: number; references: string | null }, CommandError | JsonParseError | Schema.SchemaError>
 		readonly listEpics: (input: {
 			mode: EpicListMode
 			query: string
@@ -721,6 +729,36 @@ export class GitLabService extends Context.Service<
 					const nodes = parsed.data?.currentUser?.groups?.nodes ?? []
 					const match = nodes.find((n) => n.epics.nodes.length > 0)
 					return match?.fullPath ?? null
+				})
+
+			const createIssue = (input: {
+				readonly repository: string
+				readonly title: string
+				readonly description: string
+				readonly epicIid: string
+				readonly epicGroupPath: string
+				readonly cwd: string | null
+			}): Effect.Effect<{ webUrl: string; number: number; references: string | null }, CommandError | JsonParseError | Schema.SchemaError> =>
+				Effect.gen(function* () {
+					const endpoint = `projects/${encodeProjectPath(input.repository)}/issues`
+					const result = input.cwd
+						? yield* runner.runSchema(
+								Schema.Struct({ web_url: Schema.String, iid: Schema.Number, references: Schema.Struct({ full: Schema.optionalKey(Schema.NullOr(Schema.String)) }) }),
+								"glab",
+								["api", "--method", "POST", endpoint, "--field", `title=${encodeURIComponent(input.title)}`, "--field", `description=${encodeURIComponent(input.description)}`],
+								{ cwd: input.cwd },
+							)
+						: yield* runner.runSchema(
+								Schema.Struct({ web_url: Schema.String, iid: Schema.Number, references: Schema.Struct({ full: Schema.optionalKey(Schema.NullOr(Schema.String)) }) }),
+								"glab",
+								["api", "--method", "POST", endpoint, "--field", `title=${encodeURIComponent(input.title)}`, "--field", `description=${encodeURIComponent(input.description)}`],
+							)
+					// Link the new issue to the epic
+					const linkEndpoint = `groups/${encodeURIComponent(input.epicGroupPath)}/epics/${input.epicIid}/issues/${result.iid}`
+					yield* (
+						input.cwd ? runner.run("glab", ["api", "--method", "POST", linkEndpoint], { cwd: input.cwd }) : runner.run("glab", ["api", "--method", "POST", linkEndpoint])
+					).pipe(Effect.catch(() => Effect.void))
+					return { webUrl: result.web_url, number: result.iid, references: result.references?.full ?? null }
 				})
 
 			const listEpics = (input: { mode: EpicListMode; query: string; labelFilter: string | null; groupPath: string | null; cwd: string | null }) =>
@@ -1131,6 +1169,7 @@ export class GitLabService extends Context.Service<
 				listIssues,
 				getIssueDetail,
 				discoverEpicGroupPath,
+				createIssue,
 				listEpics,
 				listEpicIssues,
 				getMergeRequestMergeInfo,

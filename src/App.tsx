@@ -129,6 +129,8 @@ import {
 	CommentModal,
 	CommentThreadModal,
 	DeleteCommentModal,
+	EpicIssueBranchModal,
+	EpicNewIssueModal,
 	filterChangedFiles,
 	filterLabels,
 	initialChangedFilesModalState,
@@ -137,6 +139,8 @@ import {
 	initialCommentModalState,
 	initialCommentThreadModalState,
 	initialDeleteCommentModalState,
+	initialEpicIssueBranchModalState,
+	initialEpicNewIssueModalState,
 	initialLabelModalState,
 	initialMergeModalState,
 	initialModal,
@@ -159,6 +163,8 @@ import {
 	type CommentModalState,
 	type CommentThreadModalState,
 	type DeleteCommentModalState,
+	type EpicIssueBranchModalState,
+	type EpicNewIssueModalState,
 	type LabelModalState,
 	type MergeModalState,
 	type ModalState,
@@ -568,6 +574,28 @@ const discoverWorkspaceReposAtom = githubRuntime.fn<string>()((rootPath) => Work
 const loadSettingsAtom = githubRuntime.fn<void>()(() => SettingsService.use((settings) => settings.load()))
 const saveSettingsAtom = githubRuntime.fn<AppSettings>()((nextSettings) => SettingsService.use((settings) => settings.save(nextSettings)))
 const discoverEpicGroupPathAtom = githubRuntime.fn<{ readonly cwd: string | null }>()((input) => GitLabService.use((gitlab) => gitlab.discoverEpicGroupPath(input.cwd)))
+const createIssueAtom = githubRuntime.fn<{
+	readonly repository: string
+	readonly title: string
+	readonly description: string
+	readonly epicIid: string
+	readonly epicGroupPath: string
+	readonly cwd: string | null
+}>()((input) =>
+	GitLabService.use((gitlab) =>
+		gitlab.createIssue({
+			repository: input.repository,
+			title: input.title,
+			description: input.description,
+			epicIid: input.epicIid,
+			epicGroupPath: input.epicGroupPath,
+			cwd: input.cwd,
+		}),
+	),
+)
+const listEpicBranchesAtom = githubRuntime.fn<{ readonly repoPath: string; readonly issueNumber: number }>()((input) =>
+	WorkspaceService.use((workspace) => workspace.listBranches(input.repoPath, `*${input.issueNumber}*`)),
+)
 const listEpicsAtom = githubRuntime.fn<{
 	readonly mode: "assigned" | "searchable"
 	readonly query: string
@@ -781,6 +809,9 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const [selectedEpicIssueIndex, setSelectedEpicIssueIndex] = useState(0)
 	// When true, ↑↓ navigate child issues in the detail pane instead of the epic list
 	const [epicIssueFocus, setEpicIssueFocus] = useState(false)
+	// Branches matching the currently focused issue in the workspace repo
+	const [epicIssueBranches, setEpicIssueBranches] = useState<readonly string[]>([])
+	const [epicIssueBranchesStatus, setEpicIssueBranchesStatus] = useState<LoadStatus>("ready")
 	const [selectedEpicIndex, setSelectedEpicIndex] = useAtom(selectedEpicIndexAtom)
 	const [appSettings, setAppSettings] = useAtom(appSettingsAtom)
 	const [mergeRequestFilterQuery, setMergeRequestFilterQuery] = useState("")
@@ -825,6 +856,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const commandPaletteActive = Modal.$is("CommandPalette")(activeModal)
 	const openRepositoryModalActive = Modal.$is("OpenRepository")(activeModal)
 	const settingsModalActive = Modal.$is("Settings")(activeModal)
+	const epicIssueBranchModalActive = Modal.$is("EpicIssueBranch")(activeModal)
+	const epicNewIssueModalActive = Modal.$is("EpicNewIssue")(activeModal)
 	const labelModal: LabelModalState = labelModalActive ? activeModal : initialLabelModalState
 	const closeModal: CloseModalState = closeModalActive ? activeModal : initialCloseModalState
 	const pullRequestStateModal: PullRequestStateModalState = pullRequestStateModalActive ? activeModal : initialPullRequestStateModalState
@@ -838,6 +871,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const commandPalette: CommandPaletteState = commandPaletteActive ? activeModal : initialCommandPaletteState
 	const openRepositoryModal: OpenRepositoryModalState = openRepositoryModalActive ? activeModal : initialOpenRepositoryModalState
 	const settingsModal: SettingsModalState = settingsModalActive ? activeModal : initialSettingsModalState
+	const epicIssueBranchModal: EpicIssueBranchModalState = epicIssueBranchModalActive ? activeModal : initialEpicIssueBranchModalState
+	const epicNewIssueModal: EpicNewIssueModalState = epicNewIssueModalActive ? activeModal : initialEpicNewIssueModalState
 	const makeModalSetter =
 		<Tag extends Exclude<ModalTag, "None">>(tag: Tag) =>
 		(next: ModalState<Tag> | ((prev: ModalState<Tag>) => ModalState<Tag>)) =>
@@ -863,6 +898,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const setCommandPalette = makeModalSetter("CommandPalette")
 	const setOpenRepositoryModal = makeModalSetter("OpenRepository")
 	const setSettingsModal = makeModalSetter("Settings")
+	const setEpicIssueBranchModal = makeModalSetter("EpicIssueBranch")
+	const setEpicNewIssueModal = makeModalSetter("EpicNewIssue")
 	const themeIdRef = useRef(themeId)
 	const themeConfigRef = useRef(themeConfig)
 	const systemAppearanceRef = useRef(systemAppearance)
@@ -890,6 +927,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const loadSettings = useAtomSet(loadSettingsAtom, { mode: "promise" })
 	const saveSettings = useAtomSet(saveSettingsAtom, { mode: "promise" })
 	const discoverEpicGroupPath = useAtomSet(discoverEpicGroupPathAtom, { mode: "promise" })
+	const createIssue = useAtomSet(createIssueAtom, { mode: "promise" })
+	const listEpicBranches = useAtomSet(listEpicBranchesAtom, { mode: "promise" })
 	const loadEpics = useAtomSet(listEpicsAtom, { mode: "promise" })
 	const loadEpicIssues = useAtomSet(listEpicIssuesAtom, { mode: "promise" })
 	const switchWorkspaceBranches = useAtomSet(switchWorkspaceBranchAcrossWorkspaceAtom, { mode: "promise" })
@@ -1764,6 +1803,30 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				setEpicIssuesStatus("error")
 			})
 	}, [selectedEpicId, selectedEpicGroupPath, selectedEpicIid, appSettings.primaryBranches, firstGitLabRepo, loadEpicIssues])
+
+	// Load branches for the selected issue when in focus mode
+	const focusedIssue = epicIssues[selectedEpicIssueIndex] ?? null
+	useEffect(() => {
+		if (!epicIssueFocus || !focusedIssue) {
+			setEpicIssueBranches([])
+			return
+		}
+		const repo = workspaceRepos.find((r) => r.projectPath === focusedIssue.repository)
+		if (!repo) {
+			setEpicIssueBranches([])
+			return
+		}
+		setEpicIssueBranchesStatus("loading")
+		void listEpicBranches({ repoPath: repo.path, issueNumber: focusedIssue.number })
+			.then((branches) => {
+				setEpicIssueBranches(branches)
+				setEpicIssueBranchesStatus("ready")
+			})
+			.catch(() => {
+				setEpicIssueBranches([])
+				setEpicIssueBranchesStatus("error")
+			})
+	}, [epicIssueFocus, focusedIssue?.url, listEpicBranches])
 
 	useEffect(() => {
 		if (pullRequestStatus !== "ready" || !selectedPullRequest) return
@@ -3239,6 +3302,70 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			})
 	}
 
+	const saveEpicIssueBranchModal = () => {
+		const branch = epicIssueBranchModal.branchInput.trim()
+		if (!branch) {
+			setEpicIssueBranchModal((c) => ({ ...c, error: "Enter a branch name." }))
+			return
+		}
+		const issue = epicIssues[selectedEpicIssueIndex] ?? null
+		if (!issue) {
+			closeActiveModal()
+			return
+		}
+		const repo = workspaceRepos.find((entry) => entry.projectPath === issue.repository)
+		const issueKey = issue.references ?? `${issue.repository}#${issue.number}`
+
+		if (epicIssueBranchModal.mode === "create" && repo) {
+			setEpicIssueBranchModal((c) => ({ ...c, running: true, error: null }))
+			void runShellCommand("git", ["switch", "-c", branch], repo.path)
+				.then(() => {
+					persistAppSettings({ ...appSettings, primaryBranches: { ...appSettings.primaryBranches, [issueKey]: branch } })
+					flashNotice(`Created branch ${branch}`)
+					discoverWorkspaceRepos(workspaceRoot)
+						.then((r) => setWorkspaceRepos(r))
+						.catch(() => {})
+					closeActiveModal()
+				})
+				.catch((err) => {
+					setEpicIssueBranchModal((c) => ({ ...c, running: false, error: errorMessage(err) }))
+				})
+		} else {
+			// set mode: just save primary branch
+			const next = { ...appSettings, primaryBranches: { ...appSettings.primaryBranches, [issueKey]: branch } }
+			persistAppSettings(next, `Primary branch set to ${branch}`)
+			closeActiveModal()
+		}
+	}
+
+	const saveEpicNewIssue = () => {
+		const title = epicNewIssueModal.titleInput.trim()
+		if (!title) {
+			setEpicNewIssueModal((c) => ({ ...c, error: "Enter an issue title." }))
+			return
+		}
+		setEpicNewIssueModal((c) => ({ ...c, running: true, error: null }))
+		void createIssue({
+			repository: epicNewIssueModal.projectPath,
+			title,
+			description: `Created from epic #${epicNewIssueModal.epicIid}: ${epicNewIssueModal.epicTitle}`,
+			epicIid: epicNewIssueModal.epicIid,
+			epicGroupPath: epicNewIssueModal.epicGroupPath,
+			cwd: firstGitLabRepo,
+		})
+			.then((result) => {
+				flashNotice(`Created issue #${result.number}`)
+				closeActiveModal()
+				// Reload epic issues to show the new one
+				void loadEpicIssues({ groupPath: selectedEpicGroupPath!, epicIid: selectedEpicIid!, primaryBranches: appSettings.primaryBranches, cwd: firstGitLabRepo })
+					.then((issues) => setEpicIssues(issues))
+					.catch(() => {})
+			})
+			.catch((err) => {
+				setEpicNewIssueModal((c) => ({ ...c, running: false, error: errorMessage(err) }))
+			})
+	}
+
 	const appCommands: readonly AppCommand[] = buildAppCommands({
 		pullRequestStatus,
 		filterQuery: sectionFilterQuery,
@@ -3702,6 +3829,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			commentModalActive ||
 			commandPaletteActive ||
 			openRepositoryModalActive ||
+			epicIssueBranchModalActive ||
+			epicNewIssueModalActive ||
 			(settingsModalActive && settingsModal.editingWorkspaceRoot) ||
 			changedFilesModalActive ||
 			submitReviewModalActive ||
@@ -4002,6 +4131,40 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return
 		}
 
+		if (epicIssueBranchModalActive) {
+			if (isSingleLineInputKey(key)) {
+				setEpicIssueBranchModal((current) => ({
+					...current,
+					branchInput: editSingleLineInput(current.branchInput, key) ?? current.branchInput,
+					error: null,
+				}))
+			}
+			if (key.name === "return") {
+				saveEpicIssueBranchModal()
+			}
+			if (key.name === "escape") {
+				closeActiveModal()
+			}
+			return
+		}
+
+		if (epicNewIssueModalActive) {
+			if (isSingleLineInputKey(key)) {
+				setEpicNewIssueModal((current) => ({
+					...current,
+					titleInput: editSingleLineInput(current.titleInput, key) ?? current.titleInput,
+					error: null,
+				}))
+			}
+			if (key.name === "return") {
+				saveEpicNewIssue()
+			}
+			if (key.name === "escape") {
+				closeActiveModal()
+			}
+			return
+		}
+
 		// q / ctrl+c quit/close-modal logic now lives in the keymap layer
 		// (handleQuitOrClose). This useKeyboard callback only handles raw text
 		// input for modals that need character-by-character accumulation.
@@ -4063,7 +4226,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			}
 		}
 
-		// Epic issue-focus mode: ↑↓ navigate child issues, esc exits
+		// Epic issue-focus mode: ↑↓ navigate child issues, esc exits, n=create branch, b=set primary, o=open issue
 		if (epicIssueFocus && activeSection === "epics") {
 			if (key.name === "escape") {
 				setEpicIssueFocus(false)
@@ -4077,19 +4240,72 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				setSelectedEpicIssueIndex((i) => Math.min(Math.max(0, epicIssues.length - 1), i + 1))
 				return
 			}
-			if (key.name === "b") {
-				runCommandById("epics.checkout-branches")
+			if (key.name === "n") {
+				// Open branch creation modal for the focused issue
+				const issue = epicIssues[selectedEpicIssueIndex] ?? null
+				if (issue) {
+					const issueKey = issue.references ?? `${issue.repository}#${issue.number}`
+					const primary = issue.primaryBranch ?? appSettings.primaryBranches[issueKey] ?? null
+					setEpicIssueBranchModal({
+						...initialEpicIssueBranchModalState,
+						mode: "create",
+						issueNumber: issue.number,
+						issueTitle: issue.title,
+						repository: issue.repository,
+						branchInput: issueBranchNameFor(issue),
+						existingBranches: epicIssueBranches,
+						primaryBranch: primary,
+					})
+				}
 				return
 			}
-			if (key.name === "m") {
-				runCommandById("epics.bulk-mr")
+			if (key.name === "b") {
+				// Open set-primary modal for the focused issue
+				const issue = epicIssues[selectedEpicIssueIndex] ?? null
+				if (issue) {
+					const issueKey = issue.references ?? `${issue.repository}#${issue.number}`
+					const primary = issue.primaryBranch ?? appSettings.primaryBranches[issueKey] ?? null
+					setEpicIssueBranchModal({
+						...initialEpicIssueBranchModalState,
+						mode: "set",
+						issueNumber: issue.number,
+						issueTitle: issue.title,
+						repository: issue.repository,
+						branchInput: primary ?? "",
+						existingBranches: epicIssueBranches,
+						primaryBranch: primary,
+					})
+				}
 				return
 			}
 			if (key.name === "o") {
-				runCommandById("epics.open-browser")
+				const issue = epicIssues[selectedEpicIssueIndex] ?? null
+				if (issue?.url) {
+					void openUrl(issue.url)
+						.then(() => flashNotice(`Opened #${issue.number}`))
+						.catch((error) => flashNotice(errorMessage(error)))
+				}
 				return
 			}
 			return
+		}
+
+		// Epic list mode: intercept N (new issue) before checking other keys
+		if (activeSection === "epics" && !epicIssueFocus && !filterMode) {
+			if (key.name === "N" || (key.name === "n" && key.shift)) {
+				if (!selectedEpic) return
+				const project = workspaceRepos.find((r) => r.isGitLab)?.projectPath ?? "project"
+				const defaultTitle = `${selectedEpic.title} - ${project.split("/").pop() ?? "feature"}`
+				setEpicNewIssueModal({
+					...initialEpicNewIssueModalState,
+					epicTitle: selectedEpic.title,
+					epicIid: selectedEpic.iid,
+					epicGroupPath: selectedEpic.groupPath,
+					projectPath: project,
+					titleInput: defaultTitle,
+				})
+				return
+			}
 		}
 
 		if (filterMode) {
@@ -4354,6 +4570,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				epicIssuesStatus={epicIssuesStatus}
 				selectedIssueIndex={selectedEpicIssueIndex}
 				issueFocus={epicIssueFocus}
+				issueBranches={epicIssueBranches}
+				issueBranchesStatus={epicIssueBranchesStatus}
 				primaryBranches={appSettings.primaryBranches}
 				contentWidth={isWideLayout ? rightContentWidth : fullscreenContentWidth}
 				paneWidth={isWideLayout ? rightPaneWidth : contentWidth}
@@ -4747,6 +4965,12 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			) : null}
 			{themeModalActive ? (
 				<ThemeModal state={themeModal} modalWidth={themeModalWidth} modalHeight={themeModalHeight} offsetLeft={themeModalLeft} offsetTop={themeModalTop} />
+			) : null}
+			{epicIssueBranchModalActive ? (
+				<EpicIssueBranchModal state={epicIssueBranchModal} modalWidth={themeModalWidth} modalHeight={10} offsetLeft={themeModalLeft} offsetTop={themeModalTop} />
+			) : null}
+			{epicNewIssueModalActive ? (
+				<EpicNewIssueModal state={epicNewIssueModal} modalWidth={themeModalWidth} modalHeight={8} offsetLeft={themeModalLeft} offsetTop={themeModalTop} />
 			) : null}
 			{openRepositoryModalActive ? (
 				<OpenRepositoryModal

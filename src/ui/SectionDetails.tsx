@@ -127,6 +127,8 @@ export const EpicDetails = ({
 	epicIssuesStatus,
 	selectedIssueIndex,
 	issueFocus,
+	issueBranches,
+	issueBranchesStatus,
 	primaryBranches,
 	contentWidth,
 	paneWidth,
@@ -136,6 +138,8 @@ export const EpicDetails = ({
 	readonly epicIssuesStatus: LoadStatus
 	readonly selectedIssueIndex: number
 	readonly issueFocus: boolean
+	readonly issueBranches: readonly string[]
+	readonly issueBranchesStatus: LoadStatus
 	readonly primaryBranches: Readonly<Record<string, string>>
 	readonly contentWidth: number
 	readonly paneWidth: number
@@ -232,6 +236,50 @@ export const EpicDetails = ({
 					)
 				})
 			)}
+
+			{/* Branch info for selected issue when focused */}
+			{issueFocus && epicIssues.length > 0 && selectedIssueIndex >= 0 && selectedIssueIndex < epicIssues.length
+				? (() => {
+						const selIssue = epicIssues[selectedIssueIndex]!
+						const issueKey = selIssue.references ?? `${selIssue.repository}#${selIssue.number}`
+						const primary = selIssue.primaryBranch ?? primaryBranches[issueKey] ?? null
+						return (
+							<>
+								<Divider width={paneWidth} />
+								<PaddedRow>
+									<TextLine>
+										<span fg={colors.accent} attributes={TextAttributes.BOLD}>{`Branches for #${selIssue.number}`}</span>
+									</TextLine>
+								</PaddedRow>
+								{issueBranchesStatus === "loading" ? (
+									<PaddedRow>
+										<PlainLine text="  - Loading branches..." fg={colors.muted} />
+									</PaddedRow>
+								) : issueBranches.length === 0 ? (
+									<PaddedRow>
+										<PlainLine text={`  - No branches found (searching repo for *${selIssue.number}*)`} fg={colors.muted} />
+									</PaddedRow>
+								) : (
+									issueBranches.slice(0, 8).map((b) => (
+										<TextLine key={b}>
+											<span fg={b === primary ? colors.status.passing : colors.text}>{`  ${b === primary ? "★" : " "} ${trimCell(b, Math.max(8, contentWidth - 5))}`}</span>
+										</TextLine>
+									))
+								)}
+								<PaddedRow>
+									<TextLine>
+										<span fg={colors.muted}>{"n "}</span>
+										<span fg={colors.count}>new branch</span>
+										<span fg={colors.muted}>{"  b "}</span>
+										<span fg={colors.count}>set primary</span>
+										<span fg={colors.muted}>{"  o "}</span>
+										<span fg={colors.count}>open in browser</span>
+									</TextLine>
+								</PaddedRow>
+							</>
+						)
+					})()
+				: null}
 		</box>
 	)
 }
