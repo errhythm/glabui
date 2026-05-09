@@ -2,7 +2,7 @@ import { Schema } from "effect"
 
 export type LoadStatus = "loading" | "ready" | "error"
 
-export const appSections = ["merge-requests", "workspace", "epics", "issues"] as const
+export const appSections = ["merge-requests", "workspace", "epics"] as const
 export type AppSection = (typeof appSections)[number]
 
 export const issueStates = ["opened", "closed"] as const

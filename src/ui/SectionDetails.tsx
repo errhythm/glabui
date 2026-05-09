@@ -1,9 +1,9 @@
 import { TextAttributes } from "@opentui/core"
-import type { EpicItem, IssueItem, WorkspaceBranchSwitchResult, WorkspaceRepo } from "../domain.js"
+import type { EpicItem, IssueItem, LoadStatus, WorkspaceBranchSwitchResult, WorkspaceRepo } from "../domain.js"
 import { formatRelativeDate } from "../date.js"
 import { colors } from "./colors.js"
 import { bodyPreview } from "./DetailsPane.js"
-import { Divider, Filler, PaddedRow, PlainLine, TextLine, trimCell } from "./primitives.js"
+import { Divider, Filler, PaddedRow, PlainLine, TextLine, trimCell, fitCell } from "./primitives.js"
 
 const renderBodyPreview = (body: string, width: number, lines = 10) =>
 	bodyPreview(body, width, lines).map((line, index) => (
@@ -121,7 +121,25 @@ export const IssueDetails = ({ issue, contentWidth, paneWidth }: { readonly issu
 	)
 }
 
-export const EpicDetails = ({ epic, contentWidth, paneWidth }: { readonly epic: EpicItem | null; readonly contentWidth: number; readonly paneWidth: number }) => {
+export const EpicDetails = ({
+	epic,
+	epicIssues,
+	epicIssuesStatus,
+	selectedIssueIndex,
+	primaryBranches,
+	contentWidth,
+	paneWidth,
+	onSelectIssue,
+}: {
+	readonly epic: EpicItem | null
+	readonly epicIssues: readonly IssueItem[]
+	readonly epicIssuesStatus: LoadStatus
+	readonly selectedIssueIndex: number
+	readonly primaryBranches: Readonly<Record<string, string>>
+	readonly contentWidth: number
+	readonly paneWidth: number
+	readonly onSelectIssue: (index: number) => void
+}) => {
 	if (!epic) {
 		return (
 			<box flexDirection="column">
@@ -133,11 +151,21 @@ export const EpicDetails = ({ epic, contentWidth, paneWidth }: { readonly epic: 
 			</box>
 		)
 	}
+
+	const openIssues = epicIssues.filter((i) => i.state === "opened")
+	const closedIssues = epicIssues.filter((i) => i.state !== "opened")
+	const issuesWithBranch = epicIssues.filter((i) => i.primaryBranch?.trim())
+	const titleWidth = Math.max(8, contentWidth - 14)
+	const branchWidth = Math.max(6, Math.floor(contentWidth * 0.35))
+
 	return (
 		<box flexDirection="column">
+			{/* Epic header */}
 			<PaddedRow>
 				<TextLine>
-					<span fg={colors.count}>{trimCell(epic.title, contentWidth)}</span>
+					<span fg={colors.count} attributes={TextAttributes.BOLD}>
+						{trimCell(epic.title, contentWidth)}
+					</span>
 				</TextLine>
 			</PaddedRow>
 			<PaddedRow>
@@ -148,11 +176,67 @@ export const EpicDetails = ({ epic, contentWidth, paneWidth }: { readonly epic: 
 			<PaddedRow>
 				<TextLine>
 					<span fg={colors.muted}>issues </span>
-					<span fg={colors.text}>{`${epic.openIssueCount} open / ${epic.closedIssueCount} closed / ${epic.issueCount} total`}</span>
+					<span fg={openIssues.length > 0 ? colors.status.review : colors.muted}>{`${openIssues.length} open`}</span>
+					<span fg={colors.muted}>{`  ${closedIssues.length} closed`}</span>
+					{issuesWithBranch.length > 0 ? (
+						<>
+							<span fg={colors.muted}>{`  `}</span>
+							<span fg={colors.status.passing}>{`${issuesWithBranch.length} branched`}</span>
+						</>
+					) : null}
 				</TextLine>
 			</PaddedRow>
+
 			<Divider width={paneWidth} />
-			{renderBodyPreview(epic.body, contentWidth, 12)}
+
+			{/* Child issues list */}
+			{epicIssuesStatus === "loading" ? (
+				<PaddedRow>
+					<PlainLine text="- Loading issues..." fg={colors.muted} />
+				</PaddedRow>
+			) : epicIssues.length === 0 ? (
+				<PaddedRow>
+					<PlainLine text="- No child issues" fg={colors.muted} />
+				</PaddedRow>
+			) : (
+				epicIssues.map((issue, index) => {
+					const selected = index === selectedIssueIndex
+					const issueKey = issue.references ?? `${issue.repository}#${issue.number}`
+					const branch = issue.primaryBranch ?? primaryBranches[issueKey] ?? null
+					const bg = selected ? colors.selectedBg : undefined
+					const fg = selected ? colors.selectedText : colors.text
+					const stateColor = issue.state === "opened" ? colors.status.review : colors.muted
+
+					return (
+						<TextLine key={issue.url} fg={fg} bg={bg} onMouseDown={() => onSelectIssue(index)}>
+							<span fg={selected ? colors.selectedText : stateColor} attributes={TextAttributes.BOLD}>
+								{fitCell(issue.state === "opened" ? "open" : "done", 5)}
+							</span>
+							<span fg={selected ? colors.selectedText : colors.muted}> </span>
+							<span>{trimCell(`#${issue.number} ${issue.title}`, titleWidth)}</span>
+							{branch ? (
+								<span fg={selected ? colors.selectedText : colors.status.passing}>{`  ${trimCell(branch, branchWidth)}`}</span>
+							) : (
+								<span fg={selected ? colors.selectedText : colors.muted}>{`  ${trimCell("no branch", branchWidth)}`}</span>
+							)}
+						</TextLine>
+					)
+				})
+			)}
+
+			{epicIssues.length > 0 ? (
+				<>
+					<Divider width={paneWidth} />
+					<PaddedRow>
+						<TextLine>
+							<span fg={colors.muted}>{"c "}</span>
+							<span fg={colors.count}>checkout branches</span>
+							<span fg={colors.muted}>{"  m "}</span>
+							<span fg={colors.count}>create MRs</span>
+						</TextLine>
+					</PaddedRow>
+				</>
+			) : null}
 		</box>
 	)
 }

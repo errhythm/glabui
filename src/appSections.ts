@@ -1,6 +1,6 @@
 import type { AppSection } from "./domain.js"
 
-export const appSectionOrder: readonly AppSection[] = ["merge-requests", "workspace", "epics", "issues"]
+export const appSectionOrder: readonly AppSection[] = ["merge-requests", "workspace", "epics"]
 
 export const appSectionLabel = (section: AppSection) => {
 	switch (section) {
@@ -8,8 +8,6 @@ export const appSectionLabel = (section: AppSection) => {
 			return "merge requests"
 		case "workspace":
 			return "workspace"
-		case "issues":
-			return "issues"
 		case "epics":
 			return "epics"
 	}

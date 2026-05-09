@@ -472,6 +472,7 @@ export class GitLabService extends Context.Service<
 			cwd: string | null
 		}) => Effect.Effect<readonly IssueItem[], CommandError | JsonParseError | Schema.SchemaError>
 		readonly getIssueDetail: (repository: string, number: number, primaryBranch: string | null) => Effect.Effect<IssueItem, CommandError | JsonParseError | Schema.SchemaError>
+		readonly discoverEpicGroupPath: (cwd: string | null) => Effect.Effect<string | null, CommandError | JsonParseError | Schema.SchemaError>
 		readonly listEpics: (input: {
 			mode: EpicListMode
 			query: string
@@ -697,6 +698,29 @@ export class GitLabService extends Context.Service<
 					const endpoint = `projects/${encodeProjectPath(repository)}/issues/${number}`
 					const raw = yield* runner.runSchema(RawIssueSchema, "glab", ["api", endpoint])
 					return toIssueItem(raw, repository, primaryBranch)
+				})
+
+			const discoverEpicGroupPath = (cwd: string | null): Effect.Effect<string | null, CommandError | JsonParseError | Schema.SchemaError> =>
+				Effect.gen(function* () {
+					const query = `query { currentUser { groups(first: 30) { nodes { fullPath epics(first: 1) { nodes { id } } } } } }`
+					const result = cwd
+						? yield* runner.run("glab", ["api", "graphql", "-f", `query=${query}`], { cwd })
+						: yield* runner.run("glab", ["api", "graphql", "-f", `query=${query}`])
+					const parsed = JSON.parse(result.stdout) as {
+						readonly data?: {
+							readonly currentUser?: {
+								readonly groups?: {
+									readonly nodes?: readonly {
+										readonly fullPath: string
+										readonly epics: { readonly nodes: readonly { readonly id: string }[] }
+									}[]
+								}
+							}
+						}
+					}
+					const nodes = parsed.data?.currentUser?.groups?.nodes ?? []
+					const match = nodes.find((n) => n.epics.nodes.length > 0)
+					return match?.fullPath ?? null
 				})
 
 			const listEpics = (input: { mode: EpicListMode; query: string; labelFilter: string | null; groupPath: string | null; cwd: string | null }) =>
@@ -1106,6 +1130,7 @@ export class GitLabService extends Context.Service<
 				getMergeRequestDetail,
 				listIssues,
 				getIssueDetail,
+				discoverEpicGroupPath,
 				listEpics,
 				listEpicIssues,
 				getMergeRequestMergeInfo,

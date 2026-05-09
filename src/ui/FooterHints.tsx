@@ -70,17 +70,6 @@ const workspaceHints = (ctx: HintsContext): readonly HintItem[] => [
 	{ key: "ctrl-p", label: "commands" },
 ]
 
-const issuesHints = (ctx: HintsContext): readonly HintItem[] => [
-	{ key: "/", label: "filter" },
-	{ key: "enter", label: "details", when: ctx.hasSelection },
-	{ key: "b", label: "primary", when: ctx.hasSelection },
-	{ key: "n", label: "branch", when: ctx.hasSelection },
-	{ key: "m", label: "mr", when: ctx.hasSelection },
-	{ key: "o", label: "browser", when: ctx.hasSelection },
-	{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
-	{ key: "1-4", label: "section" },
-]
-
 const epicsHints = (ctx: HintsContext): readonly HintItem[] => [
 	{ key: "/", label: "filter" },
 	{ key: "enter", label: "details", when: ctx.hasSelection },
@@ -127,7 +116,6 @@ const footerHints = (ctx: HintsContext): readonly HintItem[] => {
 	if (ctx.diffFullView) return diffViewHints(ctx)
 	if (ctx.detailFullView) return detailFullViewHints(ctx)
 	if (ctx.section === "workspace") return workspaceHints(ctx)
-	if (ctx.section === "issues") return issuesHints(ctx)
 	if (ctx.section === "epics") return epicsHints(ctx)
 	return defaultHints(ctx)
 }

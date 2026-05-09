@@ -240,6 +240,7 @@ export const MockGitLabService = {
 					),
 				getIssueDetail: (repository, number, primaryBranch) =>
 					Effect.succeed({ ...(issues.find((issue) => issue.repository === repository && issue.number === number) ?? issues[0]!), primaryBranch }),
+				discoverEpicGroupPath: () => Effect.succeed(null),
 				listEpics: ({ mode, query, labelFilter, groupPath }) =>
 					Effect.succeed(
 						epics
