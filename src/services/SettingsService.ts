@@ -17,6 +17,7 @@ export interface AppSettings {
 	readonly primaryBranches: Readonly<Record<string, string>>
 	readonly epicMode: EpicListMode
 	readonly epicLabelFilter: string | null
+	readonly epicGroupPath: string | null
 	readonly workspaceRoot: string | null
 	readonly systemThemeAutoReload: boolean
 }
@@ -25,6 +26,7 @@ const defaultSettings = (): AppSettings => ({
 	primaryBranches: {},
 	epicMode: "assigned",
 	epicLabelFilter: null,
+	epicGroupPath: null,
 	workspaceRoot: null,
 	systemThemeAutoReload: false,
 })
@@ -37,6 +39,7 @@ const normalizeSettings = (value: unknown): AppSettings => {
 			primaryBranches: Object.fromEntries(Object.entries(primaryBranchesSource).flatMap(([key, branch]) => (typeof branch === "string" ? [[key, branch]] : []))),
 			epicMode: decoded.epicMode === "searchable" ? "searchable" : "assigned",
 			epicLabelFilter: typeof decoded.epicLabelFilter === "string" && decoded.epicLabelFilter.trim() ? decoded.epicLabelFilter.trim() : null,
+			epicGroupPath: typeof decoded.epicGroupPath === "string" && decoded.epicGroupPath.trim() ? decoded.epicGroupPath.trim() : null,
 			workspaceRoot: typeof decoded.workspaceRoot === "string" && decoded.workspaceRoot.trim() ? decoded.workspaceRoot.trim() : null,
 			systemThemeAutoReload: typeof decoded.systemThemeAutoReload === "boolean" ? decoded.systemThemeAutoReload : false,
 		}
@@ -54,6 +57,7 @@ export class SettingsService extends Context.Service<
 		readonly setPrimaryBranch: (issueKey: string, branch: string | null) => Effect.Effect<void>
 		readonly setEpicMode: (mode: EpicListMode) => Effect.Effect<void>
 		readonly setEpicLabelFilter: (label: string | null) => Effect.Effect<void>
+		readonly setEpicGroupPath: (path: string | null) => Effect.Effect<void>
 		readonly setWorkspaceRoot: (root: string | null) => Effect.Effect<void>
 		readonly setSystemThemeAutoReload: (enabled: boolean) => Effect.Effect<void>
 	}
@@ -82,6 +86,7 @@ export class SettingsService extends Context.Service<
 									primaryBranches: settings.primaryBranches,
 									epicMode: settings.epicMode,
 									epicLabelFilter: settings.epicLabelFilter,
+									epicGroupPath: settings.epicGroupPath,
 									workspaceRoot: settings.workspaceRoot,
 									systemThemeAutoReload: settings.systemThemeAutoReload,
 								},
@@ -114,6 +119,12 @@ export class SettingsService extends Context.Service<
 						yield* save({ ...settings, epicLabelFilter: label?.trim() ? label.trim() : null })
 					})
 
+				const setEpicGroupPath = (path: string | null) =>
+					Effect.gen(function* () {
+						const settings = yield* load()
+						yield* save({ ...settings, epicGroupPath: path?.trim() ? path.trim() : null })
+					})
+
 				const setWorkspaceRoot = (root: string | null) =>
 					Effect.gen(function* () {
 						const settings = yield* load()
@@ -126,7 +137,7 @@ export class SettingsService extends Context.Service<
 						yield* save({ ...settings, systemThemeAutoReload: enabled })
 					})
 
-				return SettingsService.of({ load, save, getPrimaryBranch, setPrimaryBranch, setEpicMode, setEpicLabelFilter, setWorkspaceRoot, setSystemThemeAutoReload })
+				return SettingsService.of({ load, save, getPrimaryBranch, setPrimaryBranch, setEpicMode, setEpicLabelFilter, setEpicGroupPath, setWorkspaceRoot, setSystemThemeAutoReload })
 			}),
 		)
 }

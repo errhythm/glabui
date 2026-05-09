@@ -145,10 +145,25 @@ export interface SettingsModalState {
 	readonly selectedIndex: number
 	readonly editingWorkspaceRoot: boolean
 	readonly workspaceRootInput: string
+	readonly editingEpicGroupPath: boolean
+	readonly epicGroupPathInput: string
 	readonly epicMode: "assigned" | "searchable"
 	readonly epicLabelFilter: string | null
 	readonly systemThemeAutoReload: boolean
 	readonly error: string | null
+}
+
+export const initialSettingsModalState: SettingsModalState = {
+	themeSummary: "Open theme picker",
+	selectedIndex: 0,
+	editingWorkspaceRoot: false,
+	workspaceRootInput: "",
+	editingEpicGroupPath: false,
+	epicGroupPathInput: "",
+	epicMode: "assigned",
+	epicLabelFilter: null,
+	systemThemeAutoReload: false,
+	error: null,
 }
 
 export const filterLabels = (labels: readonly PullRequestLabel[], query: string) => {
@@ -432,17 +447,6 @@ export const initialCommandPaletteState: CommandPaletteState = {
 
 export const initialOpenRepositoryModalState: OpenRepositoryModalState = {
 	query: "",
-	error: null,
-}
-
-export const initialSettingsModalState: SettingsModalState = {
-	themeSummary: "Open theme picker",
-	selectedIndex: 0,
-	editingWorkspaceRoot: false,
-	workspaceRootInput: "",
-	epicMode: "assigned",
-	epicLabelFilter: null,
-	systemThemeAutoReload: false,
 	error: null,
 }
 

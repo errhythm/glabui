@@ -1,28 +1,8 @@
+import type { SettingsModalState } from "./modals.js"
 import { HintRow, PlainLine, StandardModal, standardModalDims, TextLine } from "./primitives.js"
 import { colors } from "./colors.js"
 
-export interface SettingsModalState {
-	readonly themeSummary: string
-	readonly selectedIndex: number
-	readonly editingWorkspaceRoot: boolean
-	readonly workspaceRootInput: string
-	readonly epicMode: "assigned" | "searchable"
-	readonly epicLabelFilter: string | null
-	readonly systemThemeAutoReload: boolean
-	readonly error: string | null
-}
-
-export const initialSettingsModalState: SettingsModalState = {
-	themeSummary: "Open theme picker",
-	selectedIndex: 0,
-	editingWorkspaceRoot: false,
-	workspaceRootInput: "",
-	epicMode: "assigned",
-	epicLabelFilter: null,
-	systemThemeAutoReload: false,
-	error: null,
-}
-
+export type { SettingsModalState }
 const rows = (state: SettingsModalState) =>
 	[
 		{ key: "theme", label: "Theme picker", value: state.themeSummary },
@@ -30,6 +10,11 @@ const rows = (state: SettingsModalState) =>
 			key: "workspaceRoot",
 			label: "Workspace root",
 			value: state.editingWorkspaceRoot ? state.workspaceRootInput || "type a path..." : state.workspaceRootInput || "current directory",
+		},
+		{
+			key: "epicGroupPath",
+			label: "Epic group path",
+			value: state.editingEpicGroupPath ? state.epicGroupPathInput || "type a group path..." : state.epicGroupPathInput || "auto-inferred",
 		},
 		{ key: "epicMode", label: "Epic mode", value: state.epicMode },
 		{ key: "epicLabelFilter", label: "Epic label filter", value: state.epicLabelFilter ?? "off" },
@@ -64,7 +49,7 @@ export const SettingsModal = ({
 			footer={
 				<HintRow
 					items={
-						state.editingWorkspaceRoot
+						state.editingWorkspaceRoot || state.editingEpicGroupPath
 							? [
 									{ key: "enter", label: "save" },
 									{ key: "esc", label: "cancel" },

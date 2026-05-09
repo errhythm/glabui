@@ -304,9 +304,14 @@ const epicsAtom = Atom.make<readonly EpicItem[]>([]).pipe(Atom.keepAlive)
 const epicsStatusAtom = Atom.make<LoadStatus>("loading").pipe(Atom.keepAlive)
 const epicsErrorAtom = Atom.make<string | null>(null).pipe(Atom.keepAlive)
 const selectedEpicIndexAtom = Atom.make(0)
-const appSettingsAtom = Atom.make<AppSettings>({ primaryBranches: {}, epicMode: "assigned", epicLabelFilter: null, workspaceRoot: null, systemThemeAutoReload: false }).pipe(
-	Atom.keepAlive,
-)
+const appSettingsAtom = Atom.make<AppSettings>({
+	primaryBranches: {},
+	epicMode: "assigned",
+	epicLabelFilter: null,
+	epicGroupPath: null,
+	workspaceRoot: null,
+	systemThemeAutoReload: false,
+}).pipe(Atom.keepAlive)
 const trimQueueLoadCache = (cache: Partial<Record<string, PullRequestLoad>>) => {
 	const repositoryKeys = Object.keys(cache).filter((key) => key.startsWith("repository:"))
 	if (repositoryKeys.length <= MAX_REPOSITORY_CACHE_ENTRIES) return cache
@@ -1075,6 +1080,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const firstGitLabRepo = workspaceRepos.find((r) => r.isGitLab)?.path ?? null
 
 	const inferredEpicGroupPath =
+		appSettings.epicGroupPath ||
 		selectedRepository?.split("/").slice(0, -1).join("/") ||
 		workspaceRepos
 			.find((repo) => repo.projectPath)
@@ -2744,6 +2750,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			selectedIndex: 0,
 			editingWorkspaceRoot: false,
 			workspaceRootInput: appSettings.workspaceRoot ?? "",
+			editingEpicGroupPath: false,
+			epicGroupPathInput: appSettings.epicGroupPath ?? "",
 			epicMode: appSettings.epicMode,
 			epicLabelFilter: appSettings.epicLabelFilter,
 			systemThemeAutoReload: appSettings.systemThemeAutoReload,
@@ -3085,7 +3093,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		setOpenRepositoryModal({ query: selectedRepository ?? "", error: null })
 	}
 
-	const settingsRowCount = 5
+	const settingsRowCount = 6
 	const moveSettingsSelection = (delta: -1 | 1) =>
 		setSettingsModal((current) => ({ ...current, selectedIndex: wrapIndex(current.selectedIndex + delta, settingsRowCount), error: null }))
 
@@ -3093,6 +3101,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		const nextSettings: AppSettings = {
 			...appSettings,
 			workspaceRoot: settingsModal.workspaceRootInput.trim() || null,
+			epicGroupPath: settingsModal.epicGroupPathInput.trim() || null,
 			epicMode: settingsModal.epicMode,
 			epicLabelFilter: settingsModal.epicLabelFilter?.trim() ? settingsModal.epicLabelFilter.trim() : null,
 			systemThemeAutoReload: settingsModal.systemThemeAutoReload,
@@ -3111,10 +3120,14 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return
 		}
 		if (settingsModal.selectedIndex === 2) {
-			setSettingsModal((current) => ({ ...current, epicMode: current.epicMode === "assigned" ? "searchable" : "assigned", error: null }))
+			setSettingsModal((current) => ({ ...current, editingEpicGroupPath: !current.editingEpicGroupPath, error: null }))
 			return
 		}
 		if (settingsModal.selectedIndex === 3) {
+			setSettingsModal((current) => ({ ...current, epicMode: current.epicMode === "assigned" ? "searchable" : "assigned", error: null }))
+			return
+		}
+		if (settingsModal.selectedIndex === 4) {
 			setSettingsModal((current) => ({ ...current, epicLabelFilter: current.epicLabelFilter ? null : "frontend", error: null }))
 			return
 		}
@@ -3985,29 +3998,33 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	useKeyboard((key) => {
 		if (settingsModalActive) {
 			if (key.name === "return") {
-				if (settingsModal.editingWorkspaceRoot) saveSettingsModal()
+				if (settingsModal.editingWorkspaceRoot || settingsModal.editingEpicGroupPath) saveSettingsModal()
 				else activateSettingsSelection()
 				return
 			}
 			if (key.name === "escape") {
 				if (settingsModal.editingWorkspaceRoot) setSettingsModal((current) => ({ ...current, editingWorkspaceRoot: false, error: null }))
+				else if (settingsModal.editingEpicGroupPath) setSettingsModal((current) => ({ ...current, editingEpicGroupPath: false, error: null }))
 				else closeActiveModal()
 				return
 			}
 			if (key.name === "up" || key.name === "k") {
-				if (!settingsModal.editingWorkspaceRoot) moveSettingsSelection(-1)
+				if (!settingsModal.editingWorkspaceRoot && !settingsModal.editingEpicGroupPath) moveSettingsSelection(-1)
 				return
 			}
 			if (key.name === "down" || key.name === "j") {
-				if (!settingsModal.editingWorkspaceRoot) moveSettingsSelection(1)
+				if (!settingsModal.editingWorkspaceRoot && !settingsModal.editingEpicGroupPath) moveSettingsSelection(1)
 				return
 			}
 			if (key.name === "space") {
-				if (!settingsModal.editingWorkspaceRoot) activateSettingsSelection()
+				if (!settingsModal.editingWorkspaceRoot && !settingsModal.editingEpicGroupPath) activateSettingsSelection()
 				return
 			}
 			if (settingsModal.editingWorkspaceRoot && isSingleLineInputKey(key)) {
 				setSettingsModal((current) => ({ ...current, workspaceRootInput: editSingleLineInput(current.workspaceRootInput, key) ?? current.workspaceRootInput, error: null }))
+			}
+			if (settingsModal.editingEpicGroupPath && isSingleLineInputKey(key)) {
+				setSettingsModal((current) => ({ ...current, epicGroupPathInput: editSingleLineInput(current.epicGroupPathInput, key) ?? current.epicGroupPathInput, error: null }))
 			}
 			return
 		}
