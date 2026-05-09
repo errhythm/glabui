@@ -14,9 +14,10 @@ export class BrowserOpener extends Context.Service<
 	BrowserOpener,
 	{
 		readonly openPullRequest: (pullRequest: PullRequestItem) => Effect.Effect<void, CommandError>
+		readonly openRepository: (repository: string) => Effect.Effect<void, CommandError>
 		readonly openUrl: (url: string) => Effect.Effect<void, CommandError>
 	}
->()("ghui/BrowserOpener") {
+>()("glabui/BrowserOpener") {
 	static readonly layerNoDeps = Layer.effect(
 		BrowserOpener,
 		Effect.gen(function* () {
@@ -24,14 +25,18 @@ export class BrowserOpener extends Context.Service<
 			const opener = platformOpener()
 
 			const openPullRequest = Effect.fn("BrowserOpener.openPullRequest")(function* (pullRequest: PullRequestItem) {
-				yield* command.run("gh", ["pr", "view", String(pullRequest.number), "--repo", pullRequest.repository, "--web"])
+				yield* command.run("glab", ["mr", "view", String(pullRequest.number), "-R", pullRequest.repository, "--web"])
+			})
+
+			const openRepository = Effect.fn("BrowserOpener.openRepository")(function* (repository: string) {
+				yield* command.run("glab", ["repo", "view", repository, "--web"])
 			})
 
 			const openUrl = Effect.fn("BrowserOpener.openUrl")(function* (url: string) {
 				yield* command.run(opener.command, [...opener.prefix, url])
 			})
 
-			return BrowserOpener.of({ openPullRequest, openUrl })
+			return BrowserOpener.of({ openPullRequest, openRepository, openUrl })
 		}),
 	)
 

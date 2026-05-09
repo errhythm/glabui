@@ -23,10 +23,21 @@ export const failingCheckNames = (pullRequest: PullRequestItem) =>
 
 export const pullRequestMetadataText = (pullRequest: PullRequestItem) => {
 	const lines = [pullRequest.title, `${pullRequest.repository} #${pullRequest.number}`, pullRequest.url]
+	if (pullRequest.references) lines.push(`reference: ${pullRequest.references}`)
 	if (pullRequest.headRefName) lines.push(`branch: ${pullRequest.headRefName}`)
+	if (pullRequest.targetBranch) lines.push(`target: ${pullRequest.targetBranch}`)
 	const review = reviewLabel(pullRequest)
 	if (review) lines.push(`review: ${review}`)
+	if (pullRequest.labels.length > 0) lines.push(`labels: ${pullRequest.labels.map((label) => label.name).join(", ")}`)
+	for (const rule of pullRequest.approvalRules) {
+		const icon = rule.approved ? "✓" : "○"
+		lines.push(
+			`${icon} ${rule.approvalsRequired} approval${rule.approvalsRequired !== 1 ? "s" : ""} from ${rule.name}${rule.approvedBy.length > 0 ? ` by ${rule.approvedBy.join(", ")}` : ""}`,
+		)
+	}
+	if (pullRequest.blockingDiscussionsResolved === false) lines.push("⚠ merge blocked: unresolved discussions")
 	if (pullRequest.checkSummary) lines.push(pullRequest.checkSummary)
+	if (pullRequest.milestone) lines.push(`milestone: ${pullRequest.milestone.title}`)
 	const failed = failingCheckNames(pullRequest)
 	if (failed.length > 0) lines.push(`failing checks: ${failed.join(", ")}`)
 	return lines.join("\n")
@@ -85,8 +96,12 @@ const fallbackLabelColor = (name: string) => {
 	for (const char of name) {
 		hash = (hash * 31 + char.charCodeAt(0)) >>> 0
 	}
-	const hue = hash % 360
-	return `hsl(${hue} 55% 35%)`
+	const r = ((hash >>> 0) & 0xff0000) >> 16
+	const g = ((hash >>> 0) & 0x00ff00) >> 8
+	const b = (hash >>> 0) & 0x0000ff
+	// Darken to keep background readable
+	const darken = (c: number) => Math.floor(c * 0.5)
+	return `#${darken(r).toString(16).padStart(2, "0")}${darken(g).toString(16).padStart(2, "0")}${darken(b).toString(16).padStart(2, "0")}`
 }
 
 export const labelColor = (label: PullRequestLabel) => label.color ?? fallbackLabelColor(label.name)

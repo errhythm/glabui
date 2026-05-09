@@ -531,6 +531,7 @@ const deleteReviewCommentAtom = githubRuntime.fn<{ readonly repository: string; 
 const submitPullRequestReviewAtom = githubRuntime.fn<SubmitPullRequestReviewInput>()((input) => GitLabService.use((gitlab) => gitlab.submitMergeRequestReview(input)))
 const copyToClipboardAtom = githubRuntime.fn<string>()((text) => Clipboard.use((clipboard) => clipboard.copy(text)))
 const openInBrowserAtom = githubRuntime.fn<PullRequestItem>()((pullRequest) => BrowserOpener.use((browser) => browser.openPullRequest(pullRequest)))
+const openRepositoryInBrowserAtom = githubRuntime.fn<string>()((repository) => BrowserOpener.use((browser) => browser.openRepository(repository)))
 const openUrlAtom = githubRuntime.fn<string>()((url) => BrowserOpener.use((browser) => browser.openUrl(url)))
 
 const pickInitialMergeMethod = (allowed: RepositoryMergeMethods | null, preferred: PullRequestMergeMethod | undefined): PullRequestMergeMethod => {
@@ -834,6 +835,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const submitPullRequestReview = useAtomSet(submitPullRequestReviewAtom, { mode: "promise" })
 	const copyToClipboard = useAtomSet(copyToClipboardAtom, { mode: "promise" })
 	const openInBrowser = useAtomSet(openInBrowserAtom, { mode: "promise" })
+	const openRepositoryInBrowser = useAtomSet(openRepositoryInBrowserAtom, { mode: "promise" })
 	const openUrl = useAtomSet(openUrlAtom, { mode: "promise" })
 	const terminalWidth = width ?? 100
 	const terminalHeight = height ?? 24
@@ -982,6 +984,15 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const selectedComments = useMemo(() => (selectedDiffKey ? (pullRequestComments[selectedDiffKey] ?? []) : []), [selectedDiffKey, pullRequestComments])
 	const selectedCommentsStatus: DetailCommentsStatus = selectedDiffKey ? (pullRequestCommentsLoaded[selectedDiffKey] ?? "idle") : "idle"
 	const selectedDiffState = useAtomValue(selectedDiffStateAtom)
+
+	useEffect(() => {
+		const data = pullRequestLoad?.data ?? []
+		for (const pullRequest of data) {
+			if (!pullRequest.detailLoaded) continue
+			cachedDetailKeysRef.current.add(pullRequestDetailKey(pullRequest))
+		}
+	}, [currentQueueCacheKey, pullRequestLoad?.fetchedAt?.getTime()])
+
 	const effectiveDiffRenderView = contentWidth >= 100 ? diffRenderView : "unified"
 	const readyDiffFiles = useMemo(
 		() => (selectedDiffState?._tag === "Ready" ? (diffWhitespaceMode === "ignore" ? minimizeWhitespaceDiffFiles(selectedDiffState.files) : selectedDiffState.files) : []),
@@ -2415,6 +2426,12 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			.catch((error) => flashNotice(errorMessage(error)))
 	}
 
+	const openSelectedProjectInBrowser = (pullRequest: PullRequestItem) => {
+		void openRepositoryInBrowser(pullRequest.repository)
+			.then(() => flashNotice(`Opened project ${pullRequest.repository} in browser`))
+			.catch((error) => flashNotice(errorMessage(error)))
+	}
+
 	const openLinkInBrowser = (url: string) => {
 		void openUrl(url)
 			.then(() => flashNotice(`Opened ${url}`))
@@ -3007,6 +3024,9 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			openPullRequestInBrowser: () => {
 				if (selectedPullRequest) openSelectedPullRequestInBrowser(selectedPullRequest)
 			},
+			openProjectInBrowser: () => {
+				if (selectedPullRequest) openSelectedProjectInBrowser(selectedPullRequest)
+			},
 			copyPullRequestMetadata: copySelectedPullRequestMetadata,
 			quit: () => renderer.destroy(),
 		},
@@ -3148,6 +3168,15 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return current <= 0 ? visiblePullRequests.length - 1 : current - 1
 		})
 	const handleQuitOrClose = () => {
+		// If text is selected, copy to clipboard instead of closing
+		const selectedText = renderer.getSelection()?.getSelectedText()?.trim()
+		if (selectedText) {
+			void copyToClipboard(selectedText).then(() => {
+				renderer.clearSelection()
+				flashNotice("Copied to clipboard")
+			})
+			return
+		}
 		if (themeModalActive) {
 			closeThemeModal(false)
 			return
@@ -3596,8 +3625,17 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const commandPaletteLeft = commandPaletteLayout.left
 	const commandPaletteTop = commandPaletteLayout.top
 
+	const handleRootMouseUp = () => {
+		const text = renderer.getSelection()?.getSelectedText()?.trim()
+		if (!text) return
+		void copyToClipboard(text).then(() => {
+			renderer.clearSelection()
+			flashNotice("Copied to clipboard")
+		})
+	}
+
 	return (
-		<box width={terminalWidth} height={terminalHeight} flexDirection="column" backgroundColor={colors.background}>
+		<box width={terminalWidth} height={terminalHeight} flexDirection="column" backgroundColor={colors.background} onMouseUp={handleRootMouseUp}>
 			<box paddingLeft={1} paddingRight={1} flexDirection="column" backgroundColor={colors.background}>
 				<PlainLine text={headerLine} fg={colors.muted} bold />
 			</box>
@@ -3840,6 +3878,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						commentsViewCount={selectedComments.length}
 						hasSelection={selectedPullRequest !== null}
 						hasError={pullRequestStatus === "error"}
+						selectedPullRequestOpen={selectedPullRequest?.state === "open"}
 						isLoading={
 							pullRequestStatus === "loading" ||
 							isRefreshingPullRequests ||

@@ -39,6 +39,7 @@ interface AppCommandActions {
 	readonly openMergeModal: () => void
 	readonly openCloseModal: () => void
 	readonly openPullRequestInBrowser: () => void
+	readonly openProjectInBrowser: () => void
 	readonly copyPullRequestMetadata: () => void
 	readonly quit: () => void
 }
@@ -169,10 +170,10 @@ export const buildAppCommands = ({
 		}),
 		defineCommand({
 			id: "repository.open",
-			title: "Open repository...",
+			title: "Switch repository...",
 			scope: "View",
 			subtitle: selectedRepository ? `Current repository: ${selectedRepository}` : "Enter owner/name or a GitLab URL",
-			keywords: ["repo", "repository", "owner", "github"],
+			keywords: ["repo", "repository", "owner", "gitlab", "switch"],
 			run: actions.openRepositoryPicker,
 		}),
 		...activeViews.map((view) =>
@@ -434,8 +435,16 @@ export const buildAppCommands = ({
 			title: "Open merge request in browser",
 			scope: "Pull request",
 			shortcut: "o",
-			keywords: ["github", "web"],
+			keywords: ["gitlab", "web", "url"],
 			run: actions.openPullRequestInBrowser,
+		}),
+		forSelected({
+			id: "pull.open-project",
+			title: "Open project in browser",
+			scope: "Pull request",
+			shortcut: "O",
+			keywords: ["gitlab", "web", "project", "repo"],
+			run: actions.openProjectInBrowser,
 		}),
 		forSelected({
 			id: "pull.copy-metadata",

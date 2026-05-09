@@ -421,6 +421,19 @@ interface DetailHeaderLayout {
 	readonly middleDividerRow: number
 	readonly bottomDividerRow: number
 	readonly headerHeight: number
+	readonly metaRows: number
+}
+
+const countMetaRows = (pullRequest: PullRequestItem): number => {
+	if (!pullRequest.detailLoaded) return 0
+	let rows = 0
+	// Approval rules (one row per rule)
+	rows += pullRequest.approvalRules.length
+	// Merge blocks
+	if (pullRequest.blockingDiscussionsResolved === false) rows += 1
+	// Pipeline
+	if (pullRequest.checkSummary) rows += 1
+	return rows
 }
 
 const computeDetailHeaderLayout = (
@@ -439,10 +452,12 @@ const computeDetailHeaderLayout = (
 	const middleDividerHeight = hasChecks && showCommentsSummary ? 1 : 0
 	const commentsHeight = showCommentsSummary ? 1 : 0
 	const bottomDividerHeight = hasChecks || showCommentsSummary ? 1 : 0
-	const headerDividerRow = 1 + titleLines + 1
+	const metaRows = countMetaRows(pullRequest)
+	// header: #/branch row + title + labels + meta rows + divider
+	const headerDividerRow = 1 + titleLines + 1 + metaRows
 	const middleDividerRow = middleDividerHeight === 1 ? headerDividerRow + checksHeight + 1 : -1
 	const bottomDividerRow = bottomDividerHeight === 1 ? headerDividerRow + checksHeight + middleDividerHeight + commentsHeight + 1 : -1
-	const headerHeight = titleLines + 3 + checksHeight + middleDividerHeight + commentsHeight + bottomDividerHeight
+	const headerHeight = titleLines + 3 + metaRows + checksHeight + middleDividerHeight + commentsHeight + bottomDividerHeight
 	return {
 		titleLines,
 		uniqueChecks,
@@ -457,6 +472,7 @@ const computeDetailHeaderLayout = (
 		middleDividerRow,
 		bottomDividerRow,
 		headerHeight,
+		metaRows,
 	}
 }
 
@@ -552,9 +568,12 @@ export const DetailHeader = ({
 	const review = reviewLabel(pullRequest)
 	const statusParts = [review].filter((part): part is string => Boolean(part))
 	const rightSide = statusParts.length > 0 ? `${statusParts.join(" ")} ${opened}` : opened
-	const branchBudget = Math.max(0, contentWidth - (1 + number.length + author.length) - rightSide.length - 3)
+	const repoMetaCandidate = ` · ${pullRequest.repository}`
+	const repoMetaBudget = Math.max(0, contentWidth - (1 + number.length + author.length) - rightSide.length - pullRequest.headRefName.length - 6)
+	const repoMeta = repoMetaBudget >= 12 ? trimCell(repoMetaCandidate, repoMetaBudget) : ""
+	const branchBudget = Math.max(0, contentWidth - (1 + number.length + author.length + repoMeta.length) - rightSide.length - 3)
 	const branch = pullRequest.headRefName && branchBudget >= 4 ? trimCell(pullRequest.headRefName, branchBudget) : ""
-	const leftWidth = 1 + number.length + (branch.length > 0 ? 1 + branch.length : 0) + author.length
+	const leftWidth = 1 + number.length + (branch.length > 0 ? 1 + branch.length : 0) + author.length + repoMeta.length
 	const gap = Math.max(2, contentWidth - leftWidth - rightSide.length)
 
 	return (
@@ -564,8 +583,11 @@ export const DetailHeader = ({
 					<span fg={colors.count}>#{number}</span>
 					{branch ? <span fg={colors.muted}> {branch}</span> : null}
 					{author ? <span fg={colors.muted}>{author}</span> : null}
+					{repoMeta ? <span fg={colors.muted}>{repoMeta}</span> : null}
 					<span fg={colors.muted}>{" ".repeat(gap)}</span>
 					{review ? <span fg={statusColor(pullRequest.reviewStatus)}>{review}</span> : null}
+					{review && pullRequest.checkSummary ? <span fg={colors.muted}> </span> : null}
+					{pullRequest.checkSummary ? <span fg={statusColor(pullRequest.checkStatus)}>{pullRequest.checkSummary}</span> : null}
 					{statusParts.length > 0 ? <span fg={colors.muted}> </span> : null}
 					<span fg={colors.muted}>{opened}</span>
 				</TextLine>
@@ -581,7 +603,7 @@ export const DetailHeader = ({
 						? labels.map((label, index) => (
 								<Fragment key={label.name}>
 									{index > 0 ? <span fg={colors.muted}> </span> : null}
-									<span bg={labelColor(label)} fg={labelTextColor(labelColor(label))}>
+									<span bg={labelColor(label)} fg={label.textColor ?? labelTextColor(labelColor(label))}>
 										{" "}
 										{label.name}{" "}
 									</span>
@@ -596,6 +618,46 @@ export const DetailHeader = ({
 					) : null}
 				</TextLine>
 			</PaddedRow>
+			{pullRequest.detailLoaded ? (
+				<>
+					{/* Approval rules */}
+					{pullRequest.approvalRules.map((rule) => {
+						const icon = rule.approved ? "✓" : "○"
+						const iconColor = rule.approved ? colors.status.approved : colors.status.review
+						const approvedByText = rule.approvedBy.length > 0 ? ` by ${rule.approvedBy.join(", ")}` : ""
+						const ruleText = `${rule.approvalsRequired} approval${rule.approvalsRequired !== 1 ? "s" : ""} from ${rule.name}`
+						const budget = contentWidth - 2 - approvedByText.length
+						return (
+							<PaddedRow key={rule.name}>
+								<TextLine>
+									<span fg={iconColor}>{icon} </span>
+									<span fg={rule.approved ? colors.muted : colors.text}>{trimCell(ruleText, budget)}</span>
+									{approvedByText ? <span fg={colors.status.approved}>{approvedByText}</span> : null}
+								</TextLine>
+							</PaddedRow>
+						)
+					})}
+					{/* Merge blocks */}
+					{pullRequest.blockingDiscussionsResolved === false ? (
+						<PaddedRow>
+							<TextLine>
+								<span fg={colors.status.failing}>⚠ </span>
+								<span fg={colors.muted}>merge blocked</span>
+								<span fg={colors.text}> unresolved discussions</span>
+							</TextLine>
+						</PaddedRow>
+					) : null}
+					{/* Pipeline */}
+					{pullRequest.checkSummary ? (
+						<PaddedRow>
+							<TextLine>
+								<span fg={colors.muted}>pipeline </span>
+								<span fg={statusColor(pullRequest.checkStatus)}>{pullRequest.checkSummary}</span>
+							</TextLine>
+						</PaddedRow>
+					) : null}
+				</>
+			) : null}
 			<Divider width={paneWidth} />
 			{hasChecks ? (
 				<box height={checkRowsCount + 1} paddingLeft={1} paddingRight={1}>

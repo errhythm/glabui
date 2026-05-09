@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import {
+	type ApprovalRule,
 	type CheckRollupStatus,
 	type CreateMergeRequestCommentInput,
 	type ListMergeRequestPageInput,
@@ -30,7 +31,21 @@ const RawUserSchema = Schema.Struct({
 	name: Schema.optionalKey(Schema.String),
 })
 
-const RawLabelSchema = Schema.String
+const RawLabelSchema = Schema.Union([
+	Schema.String,
+	Schema.Struct({
+		name: Schema.String,
+		color: OptionalNullableString,
+		text_color: OptionalNullableString,
+		description: OptionalNullableString,
+	}),
+])
+
+const RawMilestoneSchema = Schema.Struct({
+	title: Schema.String,
+	due_date: OptionalNullableString,
+	web_url: OptionalNullableString,
+})
 
 const RawPipelineSchema = Schema.Struct({
 	id: Schema.optionalKey(Schema.NullOr(Schema.Number)),
@@ -57,11 +72,15 @@ const RawMergeRequestSchema = Schema.Struct({
 	assignees: Schema.optionalKey(Schema.Array(RawUserSchema)),
 	reviewers: Schema.optionalKey(Schema.Array(RawUserSchema)),
 	labels: Schema.Array(RawLabelSchema),
+	milestone: Schema.optionalKey(Schema.NullOr(RawMilestoneSchema)),
 	draft: Schema.Boolean,
 	work_in_progress: Schema.optionalKey(Schema.Boolean),
 	merge_status: OptionalNullableString,
 	detailed_merge_status: OptionalNullableString,
 	merge_when_pipeline_succeeds: Schema.Boolean,
+	user_notes_count: Schema.optionalKey(Schema.Number),
+	upvotes: Schema.optionalKey(Schema.Number),
+	downvotes: Schema.optionalKey(Schema.Number),
 	sha: OptionalNullableString,
 	web_url: Schema.String,
 	squash: Schema.Boolean,
@@ -93,11 +112,17 @@ const RawMergeRequestDetailSchema = Schema.Struct({
 	target_branch: Schema.String,
 	source_branch: Schema.String,
 	author: RawUserSchema,
+	assignees: Schema.optionalKey(Schema.Array(RawUserSchema)),
+	reviewers: Schema.optionalKey(Schema.Array(RawUserSchema)),
 	labels: Schema.Array(RawLabelSchema),
+	milestone: Schema.optionalKey(Schema.NullOr(RawMilestoneSchema)),
 	draft: Schema.Boolean,
 	merge_status: OptionalNullableString,
 	detailed_merge_status: OptionalNullableString,
 	merge_when_pipeline_succeeds: Schema.Boolean,
+	user_notes_count: Schema.optionalKey(Schema.Number),
+	upvotes: Schema.optionalKey(Schema.Number),
+	downvotes: Schema.optionalKey(Schema.Number),
 	sha: OptionalNullableString,
 	web_url: Schema.String,
 	squash: Schema.Boolean,
@@ -231,6 +256,25 @@ const RawApprovalStateSchema = Schema.Struct({
 	),
 })
 
+const toDomainLabel = (label: Schema.Schema.Type<typeof RawLabelSchema>) =>
+	typeof label === "string"
+		? { name: label, color: null, textColor: null, description: null }
+		: {
+				name: label.name,
+				color: label.color ?? null,
+				textColor: label.text_color ?? null,
+				description: label.description ?? null,
+			}
+
+const toDomainMilestone = (milestone: Schema.Schema.Type<typeof RawMilestoneSchema> | null | undefined) =>
+	!milestone
+		? null
+		: {
+				title: milestone.title,
+				dueDate: milestone.due_date ? new Date(milestone.due_date) : null,
+				webUrl: milestone.web_url ?? null,
+			}
+
 // ── Conversion helpers ──────────────────────────────────────────────────────
 
 const parsePipelineStatus = (status: string | null | undefined): PipelineStatus => {
@@ -274,16 +318,26 @@ const toMergeRequestItem = (raw: RawMergeRequest, repository: string, approvedBy
 	const pipeline = raw.head_pipeline ?? raw.pipeline
 	const checkStatus = pipelineToCheckRollup(pipeline)
 	const checkSummary = pipeline?.status ?? null
+	const projectUrl = raw.web_url.replace(/\/-\/merge_requests\/.*$/, "") || null
 
 	return {
 		repository,
 		author: raw.author.username,
 		headRefOid: raw.sha ?? "",
 		headRefName: raw.source_branch,
+		targetBranch: raw.target_branch,
+		references: raw.references?.full ?? null,
 		number: raw.iid,
 		title: raw.title,
 		body: raw.description ?? "",
-		labels: raw.labels.map((name) => ({ name, color: null })),
+		labels: raw.labels.map(toDomainLabel),
+		assignees: (raw.assignees ?? []).map((u) => u.username),
+		reviewers: (raw.reviewers ?? []).map((u) => u.username),
+		milestone: toDomainMilestone(raw.milestone ?? null),
+		commentCount: raw.user_notes_count ?? 0,
+		upvotes: raw.upvotes ?? 0,
+		downvotes: raw.downvotes ?? 0,
+		blockingDiscussionsResolved: raw.blocking_discussions_resolved ?? null,
 		additions: 0,
 		deletions: 0,
 		changedFiles: 0,
@@ -293,11 +347,13 @@ const toMergeRequestItem = (raw: RawMergeRequest, repository: string, approvedBy
 		checkStatus,
 		checkSummary,
 		checks: [],
+		approvalRules: [],
 		autoMergeEnabled: raw.merge_when_pipeline_succeeds,
 		detailLoaded: false,
 		createdAt: new Date(raw.created_at),
 		closedAt: raw.merged_at ? new Date(raw.merged_at) : raw.closed_at ? new Date(raw.closed_at) : null,
 		url: raw.web_url,
+		projectUrl,
 	}
 }
 
@@ -411,7 +467,8 @@ export class GitLabService extends Context.Service<
 						endpoint = `merge_requests?scope=${scope}&state=opened&per_page=${safePageSize}&page=${page}${reviewerParam}`
 					}
 
-					const rawList = yield* runner.runSchema(RawMergeRequestListSchema, "glab", ["api", endpoint])
+					const endpointWithLabelDetails = `${endpoint}${endpoint.includes("?") ? "&" : "?"}with_labels_details=true`
+					const rawList = yield* runner.runSchema(RawMergeRequestListSchema, "glab", ["api", endpointWithLabelDetails])
 
 					items = rawList.map((raw) => {
 						const repo = repository ?? raw.references?.full?.split("!")?.shift()?.trim() ?? raw.web_url.replace(/https?:\/\/[^/]+\//, "").replace(/\/-\/merge_requests\/.*$/, "")
@@ -430,34 +487,70 @@ export class GitLabService extends Context.Service<
 
 			const getMergeRequestDetail = (repository: string, number: number) =>
 				Effect.gen(function* () {
-					const endpoint = `projects/${encodeProjectPath(repository)}/merge_requests/${number}`
+					const endpoint = `projects/${encodeProjectPath(repository)}/merge_requests/${number}?with_labels_details=true`
 					const raw = yield* runner.runSchema(RawMergeRequestDetailSchema, "glab", ["api", endpoint])
 
 					const changedFiles = raw.changes_count ? Number.parseInt(raw.changes_count, 10) : 0
+					const projectUrl = raw.web_url.replace(/\/-\/merge_requests\/.*$/, "") || null
+
+					// Fetch approval rules
+					const approvalEndpoint = `projects/${encodeProjectPath(repository)}/merge_requests/${number}/approval_state`
+					const approvalState = yield* runner.runSchema(RawApprovalStateSchema, "glab", ["api", approvalEndpoint]).pipe(Effect.catch(() => Effect.succeed({ rules: [] })))
+					const approvalRules: ApprovalRule[] = (approvalState.rules ?? []).map((r) => ({
+						name: r.name,
+						approvalsRequired: r.approvals_required,
+						approvedBy: (r.approved_by ?? []).map((u) => u.username),
+						approved: r.approved !== false,
+					}))
+					const allApproved = approvalRules.every((r) => r.approved)
+					const reviewStatus: ReviewStatus = raw.draft ? "draft" : allApproved ? "approved" : "review"
+
+					// Fetch pipeline jobs if pipeline is present
+					const pipelineId = raw.head_pipeline?.id ?? null
+					const checks: PipelineJob[] =
+						pipelineId != null
+							? yield* runner.runSchema(RawPipelineJobsSchema, "glab", ["api", `projects/${encodeProjectPath(repository)}/pipelines/${pipelineId}/jobs?per_page=100`]).pipe(
+									Effect.map((jobs): PipelineJob[] => jobs.map((j) => ({ name: j.name, status: parsePipelineStatus(j.status), stage: j.stage }))),
+									Effect.catch(() => Effect.succeed([] as PipelineJob[])),
+								)
+							: []
+					const passedCount = checks.filter((c) => c.status === "success" || c.status === "skipped").length
+					const checkSummary = pipelineId != null ? `${passedCount}/${checks.length}` : (raw.head_pipeline?.status ?? null)
 
 					return {
 						repository,
 						author: raw.author.username,
 						headRefOid: raw.sha ?? "",
 						headRefName: raw.source_branch,
+						targetBranch: raw.target_branch,
+						references: `!${raw.iid}`,
 						number: raw.iid,
 						title: raw.title,
 						body: raw.description ?? "",
-						labels: raw.labels.map((name) => ({ name, color: null })),
+						labels: raw.labels.map(toDomainLabel),
+						assignees: (raw.assignees ?? []).map((u) => u.username),
+						reviewers: (raw.reviewers ?? []).map((u) => u.username),
+						milestone: toDomainMilestone(raw.milestone ?? null),
+						commentCount: raw.user_notes_count ?? 0,
+						upvotes: raw.upvotes ?? 0,
+						downvotes: raw.downvotes ?? 0,
+						blockingDiscussionsResolved: raw.blocking_discussions_resolved ?? null,
 						additions: raw.additions ?? 0,
 						deletions: raw.deletions ?? 0,
 						changedFiles,
 						state: mrStateToLocal(raw.state, raw.state === "merged"),
 						isDraft: raw.draft,
-						reviewStatus: (raw.draft ? "draft" : "none") as ReviewStatus,
+						reviewStatus,
 						checkStatus: pipelineToCheckRollup(raw.head_pipeline ?? null),
-						checkSummary: raw.head_pipeline?.status ?? null,
-						checks: [],
+						checkSummary,
+						checks,
+						approvalRules,
 						autoMergeEnabled: raw.merge_when_pipeline_succeeds,
 						detailLoaded: true,
 						createdAt: new Date(raw.created_at),
 						closedAt: raw.merged_at ? new Date(raw.merged_at) : raw.closed_at ? new Date(raw.closed_at) : null,
 						url: raw.web_url,
+						projectUrl,
 					} satisfies MergeRequestItem
 				})
 

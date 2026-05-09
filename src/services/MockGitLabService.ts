@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect"
 import type {
+	ApprovalRule,
 	CreateMergeRequestCommentInput,
 	Mergeable,
 	MergeRequestComment,
@@ -60,10 +61,19 @@ const buildMergeRequest = (index: number, options: Required<MockOptions>): Merge
 		author: options.username,
 		headRefOid: `deadbeef${index.toString(16).padStart(8, "0")}`,
 		headRefName: `mock-branch-${index}`,
+		targetBranch: "main",
+		references: `${repository}!${number}`,
 		number,
 		title: `Mock PR ${number}: example change ${index}`,
 		body: `This is mock merge request !${number}.\n\nLine A.\nLine B.`,
 		labels: synthLabels(index),
+		assignees: index % 3 === 0 ? ["mock-assignee"] : [],
+		reviewers: index % 4 === 0 ? ["mock-reviewer"] : [],
+		milestone: index % 8 === 0 ? { title: "Release train", dueDate: new Date(Date.now() + 7 * 86_400_000), webUrl: `https://gitlab.com/${repository}/-/milestones/1` } : null,
+		commentCount: index % 9,
+		upvotes: index % 5,
+		downvotes: index % 2,
+		blockingDiscussionsResolved: index % 2 === 0,
 		additions: 10 + index,
 		deletions: 5 + (index % 11),
 		changedFiles: 1 + (index % 7),
@@ -71,11 +81,13 @@ const buildMergeRequest = (index: number, options: Required<MockOptions>): Merge
 		isDraft,
 		reviewStatus: review,
 		...synthCheckSummary(passed, total),
+		approvalRules: index % 6 === 0 ? [{ name: "Staging Approvals", approvalsRequired: 1, approvedBy: [], approved: false } satisfies ApprovalRule] : [],
 		autoMergeEnabled: index % 11 === 0,
 		detailLoaded: true,
 		createdAt,
 		closedAt: null,
 		url: `https://gitlab.com/${repository}/-/merge_requests/${number}`,
+		projectUrl: `https://gitlab.com/${repository}`,
 	}
 }
 

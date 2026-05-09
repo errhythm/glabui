@@ -28,6 +28,14 @@ const ReviewStatusSchema = Schema.Literals(reviewStatuses)
 const CachedPullRequestLabelSchema = Schema.Struct({
 	name: Schema.String,
 	color: Schema.NullOr(Schema.String),
+	textColor: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+})
+
+const CachedMilestoneSchema = Schema.Struct({
+	title: Schema.String,
+	dueDate: Schema.NullOr(Schema.String),
+	webUrl: Schema.NullOr(Schema.String),
 })
 
 const CachedCheckItemSchema = Schema.Struct({
@@ -36,15 +44,31 @@ const CachedCheckItemSchema = Schema.Struct({
 	stage: Schema.optionalKey(Schema.String),
 })
 
+const CachedApprovalRuleSchema = Schema.Struct({
+	name: Schema.String,
+	approvalsRequired: Schema.Number,
+	approvedBy: Schema.Array(Schema.String),
+	approved: Schema.Boolean,
+})
+
 const CachedPullRequestItemSchema = Schema.Struct({
 	repository: Schema.String,
 	author: Schema.String,
 	headRefOid: Schema.String,
 	headRefName: Schema.optionalKey(Schema.String),
+	targetBranch: Schema.optionalKey(Schema.String),
+	references: Schema.optionalKey(Schema.NullOr(Schema.String)),
 	number: Schema.Number,
 	title: Schema.String,
 	body: Schema.String,
 	labels: Schema.Array(CachedPullRequestLabelSchema),
+	assignees: Schema.optionalKey(Schema.Array(Schema.String)),
+	reviewers: Schema.optionalKey(Schema.Array(Schema.String)),
+	milestone: Schema.optionalKey(Schema.NullOr(CachedMilestoneSchema)),
+	commentCount: Schema.optionalKey(Schema.Number),
+	upvotes: Schema.optionalKey(Schema.Number),
+	downvotes: Schema.optionalKey(Schema.Number),
+	blockingDiscussionsResolved: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
 	additions: Schema.Number,
 	deletions: Schema.Number,
 	changedFiles: Schema.Number,
@@ -54,11 +78,13 @@ const CachedPullRequestItemSchema = Schema.Struct({
 	checkStatus: CheckRollupStatusSchema,
 	checkSummary: Schema.NullOr(Schema.String),
 	checks: Schema.Array(CachedCheckItemSchema),
+	approvalRules: Schema.optionalKey(Schema.Array(CachedApprovalRuleSchema)),
 	autoMergeEnabled: Schema.Boolean,
 	detailLoaded: Schema.Boolean,
 	createdAt: Schema.String,
 	closedAt: Schema.NullOr(Schema.String),
 	url: Schema.String,
+	projectUrl: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })
 
 const CachedPullRequestViewSchema = Schema.Union([
@@ -109,10 +135,25 @@ const cachedPullRequestToDomain = (cached: CachedPullRequestItem): PullRequestIt
 		author: cached.author,
 		headRefOid: cached.headRefOid,
 		headRefName: cached.headRefName ?? "",
+		targetBranch: cached.targetBranch ?? "",
+		references: cached.references ?? null,
 		number: cached.number,
 		title: cached.title,
 		body: cached.body,
 		labels: cached.labels,
+		assignees: cached.assignees ?? [],
+		reviewers: cached.reviewers ?? [],
+		milestone: cached.milestone
+			? {
+					title: cached.milestone.title,
+					dueDate: cached.milestone.dueDate ? parseDate(cached.milestone.dueDate) : null,
+					webUrl: cached.milestone.webUrl,
+				}
+			: null,
+		commentCount: cached.commentCount ?? 0,
+		upvotes: cached.upvotes ?? 0,
+		downvotes: cached.downvotes ?? 0,
+		blockingDiscussionsResolved: cached.blockingDiscussionsResolved ?? null,
 		additions: cached.additions,
 		deletions: cached.deletions,
 		changedFiles: cached.changedFiles,
@@ -122,11 +163,13 @@ const cachedPullRequestToDomain = (cached: CachedPullRequestItem): PullRequestIt
 		checkStatus: cached.checkStatus,
 		checkSummary: cached.checkSummary,
 		checks: cached.checks.map((c) => ({ name: c.name, status: c.status, stage: c.stage ?? "" })),
+		approvalRules: cached.approvalRules ?? [],
 		autoMergeEnabled: cached.autoMergeEnabled,
 		detailLoaded: cached.detailLoaded,
 		createdAt,
 		closedAt,
 		url: cached.url,
+		projectUrl: cached.projectUrl ?? null,
 	}
 }
 
@@ -135,10 +178,25 @@ const encodePullRequest = (pullRequest: PullRequestItem): CachedPullRequestItem 
 	author: pullRequest.author,
 	headRefOid: pullRequest.headRefOid,
 	headRefName: pullRequest.headRefName,
+	targetBranch: pullRequest.targetBranch,
+	references: pullRequest.references,
 	number: pullRequest.number,
 	title: pullRequest.title,
 	body: pullRequest.body,
 	labels: pullRequest.labels,
+	assignees: pullRequest.assignees,
+	reviewers: pullRequest.reviewers,
+	milestone: pullRequest.milestone
+		? {
+				title: pullRequest.milestone.title,
+				dueDate: pullRequest.milestone.dueDate?.toISOString() ?? null,
+				webUrl: pullRequest.milestone.webUrl,
+			}
+		: null,
+	commentCount: pullRequest.commentCount,
+	upvotes: pullRequest.upvotes,
+	downvotes: pullRequest.downvotes,
+	blockingDiscussionsResolved: pullRequest.blockingDiscussionsResolved,
 	additions: pullRequest.additions,
 	deletions: pullRequest.deletions,
 	changedFiles: pullRequest.changedFiles,
@@ -147,11 +205,13 @@ const encodePullRequest = (pullRequest: PullRequestItem): CachedPullRequestItem 
 	checkStatus: pullRequest.checkStatus,
 	checkSummary: pullRequest.checkSummary,
 	checks: pullRequest.checks,
+	approvalRules: pullRequest.approvalRules,
 	autoMergeEnabled: pullRequest.autoMergeEnabled,
 	detailLoaded: pullRequest.detailLoaded,
 	createdAt: pullRequest.createdAt.toISOString(),
 	closedAt: pullRequest.closedAt?.toISOString() ?? null,
 	url: pullRequest.url,
+	projectUrl: pullRequest.projectUrl,
 })
 
 const decodePullRequestJson = (json: string): Effect.Effect<PullRequestItem, CacheError> =>

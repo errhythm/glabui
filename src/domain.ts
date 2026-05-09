@@ -70,6 +70,14 @@ export interface PipelineJob {
 export interface MergeRequestLabel {
 	readonly name: string
 	readonly color: string | null
+	readonly textColor?: string | null
+	readonly description?: string | null
+}
+
+export interface MergeRequestMilestone {
+	readonly title: string
+	readonly dueDate: Date | null
+	readonly webUrl: string | null
 }
 
 export interface CreateMergeRequestCommentInput {
@@ -117,15 +125,31 @@ export type MergeRequestComment =
 export const isReviewComment = (comment: MergeRequestComment): comment is MergeRequestComment & { readonly _tag: "review-comment" } => comment._tag === "review-comment"
 export const isIssueComment = (comment: MergeRequestComment): comment is MergeRequestComment & { readonly _tag: "comment" } => comment._tag === "comment"
 
+export interface ApprovalRule {
+	readonly name: string
+	readonly approvalsRequired: number
+	readonly approvedBy: readonly string[]
+	readonly approved: boolean
+}
+
 export interface MergeRequestItem {
 	readonly repository: string
 	readonly author: string
 	readonly headRefOid: string
 	readonly headRefName: string
+	readonly targetBranch: string
+	readonly references: string | null
 	readonly number: number
 	readonly title: string
 	readonly body: string
 	readonly labels: readonly MergeRequestLabel[]
+	readonly assignees: readonly string[]
+	readonly reviewers: readonly string[]
+	readonly milestone: MergeRequestMilestone | null
+	readonly commentCount: number
+	readonly upvotes: number
+	readonly downvotes: number
+	readonly blockingDiscussionsResolved: boolean | null
 	readonly additions: number
 	readonly deletions: number
 	readonly changedFiles: number
@@ -135,11 +159,13 @@ export interface MergeRequestItem {
 	readonly checkStatus: CheckRollupStatus
 	readonly checkSummary: string | null
 	readonly checks: readonly PipelineJob[]
+	readonly approvalRules: readonly ApprovalRule[]
 	readonly autoMergeEnabled: boolean
 	readonly detailLoaded: boolean
 	readonly createdAt: Date
 	readonly closedAt: Date | null
 	readonly url: string
+	readonly projectUrl: string | null
 }
 
 export interface MergeRequestPage {

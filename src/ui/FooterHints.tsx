@@ -25,6 +25,7 @@ interface HintsContext {
 	readonly isLoading: boolean
 	readonly loadingIndicator: string
 	readonly retryProgress: RetryProgress
+	readonly selectedPullRequestOpen: boolean
 }
 
 const filterEditingHints: readonly HintItem[] = [
@@ -51,6 +52,10 @@ const detailFullViewHints = (ctx: HintsContext): readonly HintItem[] => [
 	{ key: "↑↓", label: "scroll" },
 	{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
 	{ key: "d", label: "diff", when: ctx.hasSelection },
+	{ key: "o", label: "browser", when: ctx.hasSelection },
+	{ key: "shift-r", label: "approve", when: ctx.selectedPullRequestOpen },
+	{ key: "m", label: "merge", when: ctx.selectedPullRequestOpen },
+	{ key: "l", label: "labels", when: ctx.hasSelection },
 ]
 
 const commentsViewHints = (ctx: HintsContext): readonly HintItem[] => [
