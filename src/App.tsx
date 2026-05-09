@@ -779,6 +779,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const [epicIssues, setEpicIssues] = useState<readonly IssueItem[]>([])
 	const [epicIssuesStatus, setEpicIssuesStatus] = useState<LoadStatus>("loading")
 	const [selectedEpicIssueIndex, setSelectedEpicIssueIndex] = useState(0)
+	// When true, ↑↓ navigate child issues in the detail pane instead of the epic list
+	const [epicIssueFocus, setEpicIssueFocus] = useState(false)
 	const [selectedEpicIndex, setSelectedEpicIndex] = useAtom(selectedEpicIndexAtom)
 	const [appSettings, setAppSettings] = useAtom(appSettingsAtom)
 	const [mergeRequestFilterQuery, setMergeRequestFilterQuery] = useState("")
@@ -1751,6 +1753,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		}
 		setEpicIssuesStatus("loading")
 		setSelectedEpicIssueIndex(0)
+		setEpicIssueFocus(false)
 		void loadEpicIssues({ groupPath: selectedEpicGroupPath, epicIid: selectedEpicIid, primaryBranches: appSettings.primaryBranches, cwd: firstGitLabRepo })
 			.then((issues) => {
 				setEpicIssues(issues)
@@ -3337,8 +3340,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				setDetailScrollOffset(0)
 			},
 			selectedSectionCommandOpenDetails: () => {
-				setDetailFullView(true)
-				setDetailScrollOffset(0)
+				if (activeSection === "epics") {
+					// enter on epics focuses the child issue list instead of opening full-view
+					setEpicIssueFocus(true)
+				} else {
+					setDetailFullView(true)
+					setDetailScrollOffset(0)
+				}
 			},
 			selectedSectionOpenInBrowser: () => {
 				const url = activeSection === "workspace" ? selectedWorkspaceRepo?.projectUrl : selectedEpic?.url
@@ -4038,6 +4046,47 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return
 		}
 
+		// Epic list mode: remap c/m to epic-specific actions before listNav fires
+		if (activeSection === "epics" && !epicIssueFocus && !filterMode) {
+			if (key.name === "c") {
+				runCommandById("epics.checkout-branches")
+				return
+			}
+			if (key.name === "m") {
+				runCommandById("epics.bulk-mr")
+				return
+			}
+		}
+
+		// Epic issue-focus mode: ↑↓ navigate child issues, esc exits
+		if (epicIssueFocus && activeSection === "epics") {
+			if (key.name === "escape") {
+				setEpicIssueFocus(false)
+				return
+			}
+			if (key.name === "up" || key.name === "k") {
+				setSelectedEpicIssueIndex((i) => Math.max(0, i - 1))
+				return
+			}
+			if (key.name === "down" || key.name === "j") {
+				setSelectedEpicIssueIndex((i) => Math.min(Math.max(0, epicIssues.length - 1), i + 1))
+				return
+			}
+			if (key.name === "b") {
+				runCommandById("epics.checkout-branches")
+				return
+			}
+			if (key.name === "m") {
+				runCommandById("epics.bulk-mr")
+				return
+			}
+			if (key.name === "o") {
+				runCommandById("epics.open-browser")
+				return
+			}
+			return
+		}
+
 		if (filterMode) {
 			if (isSingleLineInputKey(key)) {
 				setFilterDraft((current) => editSingleLineInput(current, key) ?? current)
@@ -4299,6 +4348,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				epicIssues={epicIssues}
 				epicIssuesStatus={epicIssuesStatus}
 				selectedIssueIndex={selectedEpicIssueIndex}
+				issueFocus={epicIssueFocus}
 				primaryBranches={appSettings.primaryBranches}
 				contentWidth={isWideLayout ? rightContentWidth : fullscreenContentWidth}
 				paneWidth={isWideLayout ? rightPaneWidth : contentWidth}
@@ -4584,6 +4634,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						hasError={sectionStatus === "error"}
 						selectedPullRequestOpen={selectedPullRequest?.state === "open"}
 						section={activeSection}
+						epicIssueFocus={epicIssueFocus}
 						isLoading={
 							sectionStatus === "loading" ||
 							isRefreshingPullRequests ||

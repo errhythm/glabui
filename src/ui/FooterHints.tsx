@@ -28,6 +28,7 @@ interface HintsContext {
 	readonly retryProgress: RetryProgress
 	readonly selectedPullRequestOpen: boolean
 	readonly section: AppSection
+	readonly epicIssueFocus: boolean
 }
 
 const filterEditingHints: readonly HintItem[] = [
@@ -66,19 +67,30 @@ const workspaceHints = (ctx: HintsContext): readonly HintItem[] => [
 	{ key: "b", label: "branch", when: ctx.hasSelection },
 	{ key: "o", label: "browser", when: ctx.hasSelection },
 	{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
-	{ key: "1-4", label: "section" },
+	{ key: "1-3", label: "section" },
 	{ key: "ctrl-p", label: "commands" },
 ]
 
-const epicsHints = (ctx: HintsContext): readonly HintItem[] => [
-	{ key: "/", label: "filter" },
-	{ key: "enter", label: "details", when: ctx.hasSelection },
-	{ key: "b", label: "checkout", when: ctx.hasSelection },
-	{ key: "m", label: "bulk mr", when: ctx.hasSelection },
-	{ key: "o", label: "browser", when: ctx.hasSelection },
-	{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
-	{ key: "1-4", label: "section" },
+const epicIssueFocusHints: readonly HintItem[] = [
+	{ key: "↑↓", label: "move issue" },
+	{ key: "b", label: "checkout" },
+	{ key: "m", label: "bulk mr" },
+	{ key: "o", label: "browser" },
+	{ key: "esc", label: "back to epics" },
 ]
+
+const epicsHints = (ctx: HintsContext): readonly HintItem[] => {
+	if (ctx.epicIssueFocus) return epicIssueFocusHints
+	return [
+		{ key: "/", label: "filter" },
+		{ key: "enter", label: "browse issues", when: ctx.hasSelection },
+		{ key: "c", label: "checkout", when: ctx.hasSelection },
+		{ key: "m", label: "bulk mr", when: ctx.hasSelection },
+		{ key: "o", label: "browser", when: ctx.hasSelection },
+		{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
+		{ key: "1-3", label: "section" },
+	]
+}
 
 const commentsViewHints = (ctx: HintsContext): readonly HintItem[] => [
 	{ key: "↑↓", label: "move", disabled: ctx.commentsViewCount <= 1 },

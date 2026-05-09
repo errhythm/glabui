@@ -126,6 +126,7 @@ export const EpicDetails = ({
 	epicIssues,
 	epicIssuesStatus,
 	selectedIssueIndex,
+	issueFocus,
 	primaryBranches,
 	contentWidth,
 	paneWidth,
@@ -135,6 +136,7 @@ export const EpicDetails = ({
 	readonly epicIssues: readonly IssueItem[]
 	readonly epicIssuesStatus: LoadStatus
 	readonly selectedIssueIndex: number
+	readonly issueFocus: boolean
 	readonly primaryBranches: Readonly<Record<string, string>>
 	readonly contentWidth: number
 	readonly paneWidth: number
@@ -189,18 +191,27 @@ export const EpicDetails = ({
 
 			<Divider width={paneWidth} />
 
-			{/* Child issues list */}
+			{/* Child issues list — heading shows focus state */}
+			<PaddedRow>
+				<TextLine>
+					<span fg={issueFocus ? colors.accent : colors.muted} attributes={TextAttributes.BOLD}>
+						{issueFocus ? "▸ Issues" : "  Issues"}
+					</span>
+					{issueFocus ? <span fg={colors.muted}>{" — ↑↓ navigate  esc back"}</span> : epicIssues.length > 0 ? <span fg={colors.muted}>{" — enter to browse"}</span> : null}
+				</TextLine>
+			</PaddedRow>
+
 			{epicIssuesStatus === "loading" ? (
 				<PaddedRow>
-					<PlainLine text="- Loading issues..." fg={colors.muted} />
+					<PlainLine text="  - Loading issues..." fg={colors.muted} />
 				</PaddedRow>
 			) : epicIssues.length === 0 ? (
 				<PaddedRow>
-					<PlainLine text="- No child issues" fg={colors.muted} />
+					<PlainLine text="  - No child issues" fg={colors.muted} />
 				</PaddedRow>
 			) : (
 				epicIssues.map((issue, index) => {
-					const selected = index === selectedIssueIndex
+					const selected = issueFocus && index === selectedIssueIndex
 					const issueKey = issue.references ?? `${issue.repository}#${issue.number}`
 					const branch = issue.primaryBranch ?? primaryBranches[issueKey] ?? null
 					const bg = selected ? colors.selectedBg : undefined
@@ -223,20 +234,6 @@ export const EpicDetails = ({
 					)
 				})
 			)}
-
-			{epicIssues.length > 0 ? (
-				<>
-					<Divider width={paneWidth} />
-					<PaddedRow>
-						<TextLine>
-							<span fg={colors.muted}>{"c "}</span>
-							<span fg={colors.count}>checkout branches</span>
-							<span fg={colors.muted}>{"  m "}</span>
-							<span fg={colors.count}>create MRs</span>
-						</TextLine>
-					</PaddedRow>
-				</>
-			) : null}
 		</box>
 	)
 }
