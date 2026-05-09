@@ -1,7 +1,9 @@
 import { Effect, Layer } from "effect"
 import type {
 	ApprovalRule,
+	EpicItem,
 	CreateMergeRequestCommentInput,
+	IssueItem,
 	Mergeable,
 	MergeRequestComment,
 	MergeRequestItem,
@@ -127,9 +129,58 @@ const mockDiff: readonly GitLabDiff[] = [
 	},
 ]
 
+const mockIssues = (items: readonly MergeRequestItem[]): readonly IssueItem[] =>
+	items.slice(0, 24).map((item, index) => ({
+		repository: item.repository,
+		author: item.author,
+		assignees: item.assignees,
+		labels: item.labels,
+		milestone: item.milestone,
+		number: 500 + index,
+		title: `Issue ${500 + index}: ${item.title}`,
+		body: `Issue body for ${item.title}`,
+		state: index % 4 === 0 ? "closed" : "opened",
+		commentCount: item.commentCount,
+		upvotes: item.upvotes,
+		downvotes: item.downvotes,
+		createdAt: item.createdAt,
+		updatedAt: item.createdAt,
+		closedAt: index % 4 === 0 ? new Date() : null,
+		url: `https://gitlab.com/${item.repository}/-/issues/${500 + index}`,
+		projectUrl: item.projectUrl,
+		references: `${item.repository}#${500 + index}`,
+		primaryBranch: index % 3 === 0 ? `feature/${500 + index}` : null,
+		detailLoaded: true,
+	}))
+
+const mockEpics = (issues: readonly IssueItem[]): readonly EpicItem[] => {
+	const groups = new Map<string, IssueItem[]>()
+	for (const issue of issues) {
+		const group = issue.repository.split("/").slice(0, -1).join("/") || "mock-org"
+		const current = groups.get(group)
+		if (current) current.push(issue)
+		else groups.set(group, [issue])
+	}
+	return [...groups.entries()].map(([groupPath, groupIssues], index) => ({
+		id: `gid://gitlab/Epic/${index + 1}`,
+		iid: String(index + 1),
+		groupPath,
+		title: `Epic ${index + 1}: ${groupPath}`,
+		body: `Epic for ${groupPath}`,
+		labels: index % 2 === 0 ? ["backend"] : [],
+		url: `https://gitlab.com/groups/${groupPath}/-/epics/${index + 1}`,
+		issueCount: groupIssues.length,
+		openIssueCount: groupIssues.filter((issue) => issue.state === "opened").length,
+		closedIssueCount: groupIssues.filter((issue) => issue.state === "closed").length,
+		detailLoaded: true,
+	}))
+}
+
 export const MockGitLabService = {
 	layer: (options: MockOptions) => {
 		const items = buildMockMergeRequests(options)
+		const issues = mockIssues(items)
+		const epics = mockEpics(issues)
 		const username = options.username ?? "mock-user"
 		const summaryItems = items.map(
 			(item) =>
@@ -176,6 +227,36 @@ export const MockGitLabService = {
 				getViewer: () => Effect.succeed(username),
 				listMergeRequests: (input) => Effect.succeed(pageItems(filterByView(input.mode, input.repository, summaryItems), input.cursor, input.pageSize)),
 				getMergeRequestDetail: (repository, number) => Effect.succeed(findMR(repository, number)),
+				listIssues: ({ mode, repository, query, primaryBranches }) =>
+					Effect.succeed(
+						issues
+							.filter((issue) => (repository ? issue.repository === repository : true))
+							.filter((issue) => (mode === "assigned" ? issue.state === "opened" : true))
+							.filter((issue) => {
+								const q = query.trim().toLowerCase()
+								return q.length === 0 || issue.title.toLowerCase().includes(q) || issue.repository.toLowerCase().includes(q)
+							})
+							.map((issue) => ({ ...issue, primaryBranch: primaryBranches[issue.references ?? ""] ?? issue.primaryBranch })),
+					),
+				getIssueDetail: (repository, number, primaryBranch) =>
+					Effect.succeed({ ...(issues.find((issue) => issue.repository === repository && issue.number === number) ?? issues[0]!), primaryBranch }),
+				listEpics: ({ mode, query, labelFilter, groupPath }) =>
+					Effect.succeed(
+						epics
+							.filter((epic) => (groupPath ? epic.groupPath === groupPath : true))
+							.filter((epic) => {
+								const q = query.trim().toLowerCase()
+								const labelOk = !labelFilter || epic.labels.includes(labelFilter)
+								const assignedOk = mode === "assigned" ? epic.issueCount > 0 : true
+								return assignedOk && labelOk && (q.length === 0 || epic.title.toLowerCase().includes(q) || epic.groupPath.toLowerCase().includes(q))
+							}),
+					),
+				listEpicIssues: (_groupPath, epicIid, primaryBranches) =>
+					Effect.succeed(
+						issues
+							.filter((issue) => issue.repository.includes(epics[Number(epicIid) - 1]?.groupPath ?? ""))
+							.map((issue) => ({ ...issue, primaryBranch: primaryBranches[issue.references ?? ""] ?? issue.primaryBranch })),
+					),
 				getMergeRequestMergeInfo: ({ repository, number }) => {
 					const mr = findMR(repository, number)
 					return Effect.succeed({

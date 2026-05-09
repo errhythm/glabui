@@ -5,13 +5,23 @@ const help = `glabui ${packageJson.version}
 Terminal UI for GitLab merge requests.
 
 Usage:
-  glabui              Start the TUI
+  glabui [--workspace <path>]   Start the TUI
   glabui -v, --version
-                    Print the installed version
+                     Print the installed version
   glabui -h, --help   Show this help message
 `
 
 const args = Bun.argv.slice(2)
+const workspaceFlagIndex = args.indexOf("--workspace")
+if (workspaceFlagIndex >= 0) {
+	const value = args[workspaceFlagIndex + 1]
+	if (!value) {
+		console.error("Missing value for --workspace")
+		process.exit(1)
+	}
+	process.env.GLABUI_WORKSPACE_ROOT = value
+	args.splice(workspaceFlagIndex, 2)
+}
 const command = args[0]
 const commands = ["help", "version"]
 

@@ -27,7 +27,7 @@ export const listNavKeymap = List(
 	// Single-key command shortcuts (delegate to existing AppCommand registry)
 	{ id: "list.filter", title: "Filter", keys: ["/"], run: (s) => s.runCommandById("filter.open") },
 	{ id: "list.refresh", title: "Refresh", keys: ["r"], run: (s) => s.runCommandById("pull.refresh") },
-	{ id: "list.theme", title: "Theme", keys: ["t"], run: (s) => s.runCommandById("theme.open") },
+	{ id: "list.settings", title: "Settings", keys: ["t"], run: (s) => s.runCommandById("settings.open") },
 	{ id: "list.diff", title: "Open diff", keys: ["d"], run: (s) => s.runCommandById("diff.open") },
 	{ id: "list.comments", title: "Open comments", keys: ["c"], run: (s) => s.runCommandById("comments.open") },
 	{ id: "list.review", title: "Review pull request", keys: ["shift+r"], run: (s) => s.runCommandById("pull.submit-review") },

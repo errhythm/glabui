@@ -140,6 +140,17 @@ export interface OpenRepositoryModalState {
 	readonly error: string | null
 }
 
+export interface SettingsModalState {
+	readonly themeSummary: string
+	readonly selectedIndex: number
+	readonly editingWorkspaceRoot: boolean
+	readonly workspaceRootInput: string
+	readonly epicMode: "assigned" | "searchable"
+	readonly epicLabelFilter: string | null
+	readonly systemThemeAutoReload: boolean
+	readonly error: string | null
+}
+
 export const filterLabels = (labels: readonly PullRequestLabel[], query: string) => {
 	const normalized = query.trim().toLowerCase()
 	if (normalized.length === 0) return labels
@@ -424,6 +435,17 @@ export const initialOpenRepositoryModalState: OpenRepositoryModalState = {
 	error: null,
 }
 
+export const initialSettingsModalState: SettingsModalState = {
+	themeSummary: "Open theme picker",
+	selectedIndex: 0,
+	editingWorkspaceRoot: false,
+	workspaceRootInput: "",
+	epicMode: "assigned",
+	epicLabelFilter: null,
+	systemThemeAutoReload: false,
+	error: null,
+}
+
 export type Modal = Data.TaggedEnum<{
 	None: {}
 	Label: LabelModalState
@@ -438,6 +460,7 @@ export type Modal = Data.TaggedEnum<{
 	Theme: ThemeModalState
 	CommandPalette: CommandPaletteState
 	OpenRepository: OpenRepositoryModalState
+	Settings: SettingsModalState
 }>
 
 export const Modal = Data.taggedEnum<Modal>()
@@ -459,6 +482,7 @@ export const modalInitialStates = {
 	Theme: initialThemeModalState,
 	CommandPalette: initialCommandPaletteState,
 	OpenRepository: initialOpenRepositoryModalState,
+	Settings: initialSettingsModalState,
 } as const satisfies { [Tag in Exclude<ModalTag, "None">]: ModalState<Tag> }
 
 export const OpenRepositoryModal = ({

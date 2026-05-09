@@ -35,7 +35,13 @@ Usage:
 `
 
 const run = (target, args = process.argv.slice(2)) => {
-	const result = childProcess.spawnSync(target, args, { stdio: "inherit" })
+	const nextArgs = [...args]
+	const workspaceFlagIndex = nextArgs.indexOf("--workspace")
+	if (workspaceFlagIndex >= 0 && nextArgs[workspaceFlagIndex + 1]) {
+		process.env.GLABUI_WORKSPACE_ROOT = nextArgs[workspaceFlagIndex + 1]
+		nextArgs.splice(workspaceFlagIndex, 2)
+	}
+	const result = childProcess.spawnSync(target, nextArgs, { stdio: "inherit", env: process.env })
 	if (result.error) {
 		console.error(result.error.message)
 		process.exit(1)

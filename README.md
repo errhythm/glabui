@@ -1,41 +1,41 @@
-# ghui
+# glabui
 
-Terminal UI for keeping up with your open GitHub pull requests across repositories.
+Terminal UI for keeping up with your GitLab merge requests, workspace repos, issues, and epics.
 
-`ghui` gives you one keyboard-driven place to review PR details, inspect diffs, leave diff comments, manage labels, toggle draft state, merge, open PRs in GitHub, and copy PR metadata without leaving the terminal.
+`glabui` gives you one keyboard-driven place to review merge request details, inspect diffs, leave diff comments, manage labels, toggle draft state, merge, open GitLab pages in the browser, and move across multiple work surfaces without leaving the terminal.
 
 <img width="1420" height="856" alt="image" src="https://github.com/user-attachments/assets/5e560a4a-5887-4baa-a6d4-e1f4f0410c70" />
 
 ## Install
 
-Homebrew is the recommended install path on macOS and Linux. It installs a standalone `ghui` binary, so you do not need Bun or npm at runtime.
+Homebrew is the recommended install path on macOS and Linux. It installs a standalone `glabui` binary, so you do not need Bun or npm at runtime.
 
 ```bash
-brew install kitlangton/tap/ghui
+brew install errhythm/tap/glabui
 ```
 
 Upgrade with:
 
 ```bash
-brew upgrade ghui
+brew upgrade glabui
 ```
 
 Or install with npm:
 
 ```bash
-npm install -g @kitlangton/ghui
+npm install -g @errhythm/glabui
 ```
 
 The npm package also installs a platform-specific binary package and does not require Bun.
 
 Requirements:
 
-- GitHub CLI installed and authenticated with `gh auth login`
+- GitLab CLI installed and authenticated with `glab auth login`
 
 Run it from anywhere:
 
 ```bash
-ghui
+glabui
 ```
 
 ## Local Development
@@ -43,8 +43,8 @@ ghui
 Clone, install, and link:
 
 ```bash
-git clone https://github.com/kitlangton/ghui.git
-cd ghui
+git clone https://github.com/errhythm/glabui.git
+cd glabui
 bun install
 bun link
 ```
@@ -59,19 +59,20 @@ bun run dev
 
 ## Configuration
 
-- `GHUI_PR_FETCH_LIMIT`: max PRs fetched, defaults to `200`
+- `GLABUI_PR_FETCH_LIMIT`: max merge requests fetched, defaults to `200`
+- `GLABUI_WORKSPACE_ROOT`: override workspace discovery root
 
 Example:
 
 ```bash
-GHUI_PR_FETCH_LIMIT=100 ghui
+GLABUI_PR_FETCH_LIMIT=100 glabui
 ```
 
 You can also copy `.env.example` to `.env` and edit the values locally.
 
-ghui stores UI preferences in `config.json` under `GHUI_CONFIG_DIR` when set,
+glabui stores UI preferences in `config.json` under `GLABUI_CONFIG_DIR` when set,
 otherwise under the platform config directory. On Linux this is normally
-`~/.config/ghui/config.json`.
+`~/.config/glabui/config.json`.
 
 Example:
 
@@ -92,12 +93,14 @@ running.
 - `k` / `j`: move selection
 - `gg` / `G`: jump to first or last pull request
 - `ctrl-u` / `ctrl-d`: page up or down
-- `tab` / `shift-tab`: switch PR queue
+- `1-4`: switch sections
+- `tab` / `shift-tab`: switch sections
 - `ctrl-p` / `cmd-k`: open the command palette
 - `/`: filter
-- `enter`: expand details; normal PR actions still work while details are expanded
+- `enter`: expand details
 - `esc`: return from expanded details, leave diff/comment mode, or close modal
 - `r`: refresh
+- `t`: open settings
 - `d`: view stacked diff for all changed files
 - `shift-r`: review or approve the selected pull request
 - `up` / `down` / `pageup` / `pagedown`: move comment target while viewing a diff
@@ -110,7 +113,6 @@ running.
 - `s`: toggle draft or ready-for-review state
 - `m`: merge
 - `x`: close with confirmation
-- `t`: choose a fixed theme, including `System` to match your terminal colors; press `m` in the theme picker to follow the OS light/dark appearance with separate theme choices
 - `l`: manage labels
 - `o`: open PR in browser
 - `y`: copy PR metadata

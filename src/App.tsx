@@ -10,12 +10,16 @@ import * as Atom from "effect/unstable/reactivity/Atom"
 import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
 import { useContext, useEffect, useMemo, useRef, useState } from "react"
 import { buildAppCommands } from "./appCommands.js"
+import { appSectionOrder, nextAppSection } from "./appSections.js"
 import type { AppCommand } from "./commands.js"
 import { clampCommandIndex, type CommandScope, commandEnabled, defineCommand, filterCommands, sortCommandsByActiveScope } from "./commands.js"
 import { config } from "./config.js"
 import {
+	type AppSection,
 	type CreatePullRequestCommentInput,
 	type DiffCommentSide,
+	type EpicItem,
+	type IssueItem,
 	isReviewComment,
 	type ListPullRequestPageInput,
 	type LoadStatus,
@@ -27,6 +31,8 @@ import {
 	type PullRequestReviewComment,
 	type RepositoryMergeMethods,
 	type SubmitPullRequestReviewInput,
+	type WorkspaceBranchSwitchResult,
+	type WorkspaceRepo,
 } from "./domain.js"
 import { allowedMergeMethodList, pullRequestMergeMethods } from "./domain.js"
 import { formatShortDate, formatTimestamp } from "./date.js"
@@ -52,6 +58,8 @@ import { CacheService, type PullRequestCacheKey } from "./services/CacheService.
 import { Clipboard } from "./services/Clipboard.js"
 import { CommandRunner } from "./services/CommandRunner.js"
 import { GitLabService } from "./services/GitLabService.js"
+import { SettingsService, type AppSettings } from "./services/SettingsService.js"
+import { WorkspaceService, type SwitchWorkspaceBranchInput } from "./services/WorkspaceService.js"
 import { detectSystemAppearance } from "./systemAppearance.js"
 import { fixedThemeConfig, resolveThemeId, systemThemeConfigForTheme, themeConfigWithSelection, type ThemeConfig, type ThemeMode } from "./themeConfig.js"
 import { loadStoredDiffWhitespaceMode, loadStoredThemeConfig, saveStoredDiffWhitespaceMode, saveStoredThemeConfig } from "./themeStore.js"
@@ -114,6 +122,7 @@ import { FooterHints, initialRetryProgress, RetryProgress } from "./ui/FooterHin
 import { LoadingLogoPane } from "./ui/LoadingLogo.js"
 import { Divider, Filler, fitCell, PlainLine, SeparatorColumn } from "./ui/primitives.js"
 import { CommandPalette } from "./ui/CommandPalette.js"
+import { SettingsModal } from "./ui/SettingsModal.js"
 import {
 	ChangedFilesModal,
 	CloseModal,
@@ -132,6 +141,7 @@ import {
 	initialMergeModalState,
 	initialModal,
 	initialOpenRepositoryModalState,
+	initialSettingsModalState,
 	initialPullRequestStateModalState,
 	initialSubmitReviewModalState,
 	initialThemeModalState,
@@ -154,6 +164,7 @@ import {
 	type ModalState,
 	type ModalTag,
 	type OpenRepositoryModalState,
+	type SettingsModalState,
 	type PullRequestStateModalState,
 	type SubmitReviewModalState,
 	type ThemeModalState,
@@ -163,6 +174,8 @@ import { quotedReplyBody } from "./ui/comments.js"
 import { CommentsPane, commentsViewRowCount, orderCommentsForDisplay } from "./ui/CommentsPane.js"
 import { PullRequestDiffPane } from "./ui/PullRequestDiffPane.js"
 import { buildPullRequestListRows, pullRequestListRowIndex, PullRequestList } from "./ui/PullRequestList.js"
+import { EpicDetails, IssueDetails, WorkspaceDetails } from "./ui/SectionDetails.js"
+import { epicAsListItem, issueAsListItem, SectionList, workspaceRepoAsListItem } from "./ui/SectionList.js"
 import { editSingleLineInput, isSingleLineInputKey, printableKeyText, singleLineText } from "./ui/singleLineInput.js"
 import { SPINNER_FRAMES, SPINNER_INTERVAL_MS } from "./ui/spinner.js"
 
@@ -185,7 +198,7 @@ const gitlabServiceLayer =
 const cacheServiceLayer = mockPrCount !== null ? CacheService.disabledLayer : CacheService.layerFromPath(config.cachePath)
 
 const githubRuntime = Atom.runtime(
-	Layer.mergeAll(gitlabServiceLayer, cacheServiceLayer, Clipboard.layerNoDeps, BrowserOpener.layerNoDeps).pipe(
+	Layer.mergeAll(gitlabServiceLayer, cacheServiceLayer, Clipboard.layerNoDeps, BrowserOpener.layerNoDeps, WorkspaceService.layer, SettingsService.layerFromPath()).pipe(
 		Layer.provide(CommandRunner.layer),
 		Layer.provideMerge(Observability.layer),
 	),
@@ -275,8 +288,25 @@ const cacheViewerFor = (view: PullRequestView, username: string | null) => (view
 
 const retryProgressAtom = Atom.make<RetryProgress>(initialRetryProgress).pipe(Atom.keepAlive)
 const activeViewAtom = Atom.make<PullRequestView>(initialPullRequestView()).pipe(Atom.keepAlive)
+const activeSectionAtom = Atom.make<AppSection>("merge-requests").pipe(Atom.keepAlive)
 const queueLoadCacheAtom = Atom.make<Partial<Record<string, PullRequestLoad>>>({}).pipe(Atom.keepAlive)
 const queueSelectionAtom = Atom.make<Partial<Record<string, number>>>({}).pipe(Atom.keepAlive)
+const workspaceReposAtom = Atom.make<readonly WorkspaceRepo[]>([]).pipe(Atom.keepAlive)
+const workspaceStatusAtom = Atom.make<LoadStatus>("loading").pipe(Atom.keepAlive)
+const workspaceErrorAtom = Atom.make<string | null>(null).pipe(Atom.keepAlive)
+const selectedWorkspaceIndexAtom = Atom.make(0)
+const workspaceBranchResultsAtom = Atom.make<readonly WorkspaceBranchSwitchResult[]>([]).pipe(Atom.keepAlive)
+const issuesAtom = Atom.make<readonly IssueItem[]>([]).pipe(Atom.keepAlive)
+const issuesStatusAtom = Atom.make<LoadStatus>("loading").pipe(Atom.keepAlive)
+const issuesErrorAtom = Atom.make<string | null>(null).pipe(Atom.keepAlive)
+const selectedIssueIndexAtom = Atom.make(0)
+const epicsAtom = Atom.make<readonly EpicItem[]>([]).pipe(Atom.keepAlive)
+const epicsStatusAtom = Atom.make<LoadStatus>("loading").pipe(Atom.keepAlive)
+const epicsErrorAtom = Atom.make<string | null>(null).pipe(Atom.keepAlive)
+const selectedEpicIndexAtom = Atom.make(0)
+const appSettingsAtom = Atom.make<AppSettings>({ primaryBranches: {}, epicMode: "assigned", epicLabelFilter: null, workspaceRoot: null, systemThemeAutoReload: false }).pipe(
+	Atom.keepAlive,
+)
 const trimQueueLoadCache = (cache: Partial<Record<string, PullRequestLoad>>) => {
 	const repositoryKeys = Object.keys(cache).filter((key) => key.startsWith("repository:"))
 	if (repositoryKeys.length <= MAX_REPOSITORY_CACHE_ENTRIES) return cache
@@ -533,6 +563,29 @@ const copyToClipboardAtom = githubRuntime.fn<string>()((text) => Clipboard.use((
 const openInBrowserAtom = githubRuntime.fn<PullRequestItem>()((pullRequest) => BrowserOpener.use((browser) => browser.openPullRequest(pullRequest)))
 const openRepositoryInBrowserAtom = githubRuntime.fn<string>()((repository) => BrowserOpener.use((browser) => browser.openRepository(repository)))
 const openUrlAtom = githubRuntime.fn<string>()((url) => BrowserOpener.use((browser) => browser.openUrl(url)))
+const discoverWorkspaceReposAtom = githubRuntime.fn<string>()((rootPath) => WorkspaceService.use((workspace) => workspace.discoverRepos(rootPath)))
+const loadSettingsAtom = githubRuntime.fn<void>()(() => SettingsService.use((settings) => settings.load()))
+const saveSettingsAtom = githubRuntime.fn<AppSettings>()((nextSettings) => SettingsService.use((settings) => settings.save(nextSettings)))
+const listIssuesAtom = githubRuntime.fn<{
+	readonly mode: "assigned" | "searchable" | "repository"
+	readonly repository: string | null
+	readonly query: string
+	readonly primaryBranches: Readonly<Record<string, string>>
+}>()((input) => GitLabService.use((gitlab) => gitlab.listIssues(input)))
+const listEpicsAtom = githubRuntime.fn<{
+	readonly mode: "assigned" | "searchable"
+	readonly query: string
+	readonly labelFilter: string | null
+	readonly groupPath: string | null
+}>()((input) => GitLabService.use((gitlab) => gitlab.listEpics(input)))
+const listEpicIssuesAtom = githubRuntime.fn<{
+	readonly groupPath: string
+	readonly epicIid: string
+	readonly primaryBranches: Readonly<Record<string, string>>
+}>()((input) => GitLabService.use((gitlab) => gitlab.listEpicIssues(input.groupPath, input.epicIid, input.primaryBranches)))
+const switchWorkspaceBranchAcrossWorkspaceAtom = githubRuntime.fn<SwitchWorkspaceBranchInput>()((input) =>
+	WorkspaceService.use((workspace) => workspace.switchBranchAcrossWorkspace(input)),
+)
 
 const pickInitialMergeMethod = (allowed: RepositoryMergeMethods | null, preferred: PullRequestMergeMethod | undefined): PullRequestMergeMethod => {
 	if (!allowed) return preferred ?? pullRequestMergeMethods[0]
@@ -710,12 +763,30 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const registry = useContext(RegistryContext)
 	const pullRequestResult = useAtomValue(pullRequestsAtom)
 	const refreshPullRequestsAtom = useAtomRefresh(pullRequestsAtom)
+	const [activeSection, setActiveSection] = useAtom(activeSectionAtom)
 	const [activeView, setActiveView] = useAtom(activeViewAtom)
 	const setQueueLoadCache = useAtomSet(queueLoadCacheAtom)
 	const setQueueSelection = useAtomSet(queueSelectionAtom)
 	const [selectedIndex, setSelectedIndex] = useAtom(selectedIndexAtom)
+	const [workspaceRepos, setWorkspaceRepos] = useAtom(workspaceReposAtom)
+	const [workspaceStatus, setWorkspaceStatus] = useAtom(workspaceStatusAtom)
+	const [workspaceError, setWorkspaceError] = useAtom(workspaceErrorAtom)
+	const [selectedWorkspaceIndex, setSelectedWorkspaceIndex] = useAtom(selectedWorkspaceIndexAtom)
+	const [workspaceBranchResults, setWorkspaceBranchResults] = useAtom(workspaceBranchResultsAtom)
+	const [issues, setIssues] = useAtom(issuesAtom)
+	const [issuesStatus, setIssuesStatus] = useAtom(issuesStatusAtom)
+	const [issuesError, setIssuesError] = useAtom(issuesErrorAtom)
+	const [selectedIssueIndex, setSelectedIssueIndex] = useAtom(selectedIssueIndexAtom)
+	const [epics, setEpics] = useAtom(epicsAtom)
+	const [epicsStatus, setEpicsStatus] = useAtom(epicsStatusAtom)
+	const [epicsError, setEpicsError] = useAtom(epicsErrorAtom)
+	const [selectedEpicIndex, setSelectedEpicIndex] = useAtom(selectedEpicIndexAtom)
+	const [appSettings, setAppSettings] = useAtom(appSettingsAtom)
+	const [mergeRequestFilterQuery, setMergeRequestFilterQuery] = useState("")
+	const [workspaceFilterQuery, setWorkspaceFilterQuery] = useState("")
+	const [issuesFilterQuery, setIssuesFilterQuery] = useState("")
+	const [epicsFilterQuery, setEpicsFilterQuery] = useState("")
 	const [notice, setNotice] = useAtom(noticeAtom)
-	const [filterQuery, setFilterQuery] = useAtom(filterQueryAtom)
 	const [filterDraft, setFilterDraft] = useAtom(filterDraftAtom)
 	const [filterMode, setFilterMode] = useAtom(filterModeAtom)
 	const [detailFullView, setDetailFullView] = useAtom(detailFullViewAtom)
@@ -753,6 +824,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const themeModalActive = Modal.$is("Theme")(activeModal)
 	const commandPaletteActive = Modal.$is("CommandPalette")(activeModal)
 	const openRepositoryModalActive = Modal.$is("OpenRepository")(activeModal)
+	const settingsModalActive = Modal.$is("Settings")(activeModal)
 	const labelModal: LabelModalState = labelModalActive ? activeModal : initialLabelModalState
 	const closeModal: CloseModalState = closeModalActive ? activeModal : initialCloseModalState
 	const pullRequestStateModal: PullRequestStateModalState = pullRequestStateModalActive ? activeModal : initialPullRequestStateModalState
@@ -765,6 +837,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const themeModal: ThemeModalState = themeModalActive ? activeModal : initialThemeModalState
 	const commandPalette: CommandPaletteState = commandPaletteActive ? activeModal : initialCommandPaletteState
 	const openRepositoryModal: OpenRepositoryModalState = openRepositoryModalActive ? activeModal : initialOpenRepositoryModalState
+	const settingsModal: SettingsModalState = settingsModalActive ? activeModal : initialSettingsModalState
 	const makeModalSetter =
 		<Tag extends Exclude<ModalTag, "None">>(tag: Tag) =>
 		(next: ModalState<Tag> | ((prev: ModalState<Tag>) => ModalState<Tag>)) =>
@@ -789,6 +862,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const setThemeModal = makeModalSetter("Theme")
 	const setCommandPalette = makeModalSetter("CommandPalette")
 	const setOpenRepositoryModal = makeModalSetter("OpenRepository")
+	const setSettingsModal = makeModalSetter("Settings")
 	const themeIdRef = useRef(themeId)
 	const themeConfigRef = useRef(themeConfig)
 	const systemAppearanceRef = useRef(systemAppearance)
@@ -812,6 +886,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const usernameResult = useAtomValue(usernameAtom)
 	const loadRepoLabels = useAtomSet(listRepoLabelsAtom, { mode: "promise" })
 	const loadPullRequestPage = useAtomSet(listOpenPullRequestPageAtom, { mode: "promise" })
+	const discoverWorkspaceRepos = useAtomSet(discoverWorkspaceReposAtom, { mode: "promise" })
+	const loadSettings = useAtomSet(loadSettingsAtom, { mode: "promise" })
+	const saveSettings = useAtomSet(saveSettingsAtom, { mode: "promise" })
+	const loadIssues = useAtomSet(listIssuesAtom, { mode: "promise" })
+	const loadEpics = useAtomSet(listEpicsAtom, { mode: "promise" })
+	const loadEpicIssues = useAtomSet(listEpicIssuesAtom, { mode: "promise" })
+	const switchWorkspaceBranches = useAtomSet(switchWorkspaceBranchAcrossWorkspaceAtom, { mode: "promise" })
 	const addPullRequestLabel = useAtomSet(addPullRequestLabelAtom, { mode: "promise" })
 	const removePullRequestLabel = useAtomSet(removePullRequestLabelAtom, { mode: "promise" })
 	const toggleDraftStatus = useAtomSet(toggleDraftAtom, { mode: "promise" })
@@ -885,6 +966,27 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		}, 2500)
 	}
 
+	const persistAppSettings = (nextSettings: AppSettings, successMessage?: string) => {
+		setAppSettings(nextSettings)
+		void saveSettings(nextSettings)
+			.then(() => {
+				if (successMessage) flashNotice(successMessage)
+			})
+			.catch((error) => flashNotice(errorMessage(error)))
+	}
+
+	const issueBranchNameFor = (issue: IssueItem) => {
+		const base = issue.primaryBranch?.trim() || `issue-${issue.number}`
+		return base
+			.toLowerCase()
+			.replace(/[^a-z0-9/_-]+/g, "-")
+			.replace(/-+/g, "-")
+			.replace(/^-|-$/g, "")
+	}
+
+	const runShellCommand = (command: string, args: readonly string[], cwd?: string) =>
+		Effect.runPromise(CommandRunner.use((runner) => runner.run(command, args, cwd ? { cwd } : undefined)).pipe(Effect.provide(CommandRunner.layer)))
+
 	const previewActiveTheme = (id: ThemeId) => {
 		setActiveTheme(id)
 		themeIdRef.current = id
@@ -951,13 +1053,30 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const username = AsyncResult.isSuccess(usernameResult) ? usernameResult.value : null
 	pullRequestStatusRef.current = pullRequestStatus
 
-	const visibleFilterText = filterMode ? filterDraft : filterQuery
+	const sectionFilterQuery =
+		activeSection === "merge-requests"
+			? mergeRequestFilterQuery
+			: activeSection === "workspace"
+				? workspaceFilterQuery
+				: activeSection === "issues"
+					? issuesFilterQuery
+					: epicsFilterQuery
+	const workspaceRoot = process.env.GLABUI_WORKSPACE_ROOT ?? appSettings.workspaceRoot ?? process.cwd()
+	const visibleFilterText = filterMode ? filterDraft : sectionFilterQuery
 	const visibleGroups = useAtomValue(visibleGroupsAtom)
 	const visiblePullRequests = useAtomValue(visiblePullRequestsAtom)
 	const selectedPullRequest = useAtomValue(selectedPullRequestAtom)
 	const pullRequestComments = useAtomValue(pullRequestCommentsAtom)
 	const pullRequestCommentsLoaded = useAtomValue(pullRequestCommentsLoadedAtom)
 	const selectedRepository = viewRepository(activeView)
+	const inferredEpicGroupPath =
+		selectedRepository?.split("/").slice(0, -1).join("/") ||
+		workspaceRepos
+			.find((repo) => repo.projectPath)
+			?.projectPath?.split("/")
+			.slice(0, -1)
+			.join("/") ||
+		null
 	const activeViews = activePullRequestViews(activeView)
 	const currentQueueCacheKey = viewCacheKey(activeView)
 	const loadedPullRequestCount = pullRequestLoad?.data.length ?? 0
@@ -970,12 +1089,12 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				status: pullRequestStatus,
 				error: pullRequestError,
 				filterText: visibleFilterText,
-				showFilterBar: filterMode || filterQuery.length > 0,
+				showFilterBar: filterMode || sectionFilterQuery.length > 0,
 				loadedCount: loadedPullRequestCount,
 				hasMore: hasMorePullRequests,
 				isLoadingMore: isLoadingMorePullRequests,
 			}),
-		[visibleGroups, pullRequestStatus, pullRequestError, visibleFilterText, filterMode, filterQuery, loadedPullRequestCount, hasMorePullRequests, isLoadingMorePullRequests],
+		[visibleGroups, pullRequestStatus, pullRequestError, visibleFilterText, filterMode, sectionFilterQuery, loadedPullRequestCount, hasMorePullRequests, isLoadingMorePullRequests],
 	)
 	const selectedPullRequestRowIndex = pullRequestListRowIndex(pullRequestListRows, selectedPullRequest?.url ?? null)
 	const selectedDiffKey = useAtomValue(selectedDiffKeyAtom)
@@ -1064,7 +1183,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		: pullRequestStatus === "loading"
 			? "loading pull requests..."
 			: ""
-	const headerLeft = username ? `GHUI  ${username}  ${viewLabel(activeView)}` : `GHUI  ${viewLabel(activeView)}`
+	const sectionTabs = [
+		`1 ${activeSection === "merge-requests" ? "[MRs]" : "MRs"}`,
+		`2 ${activeSection === "workspace" ? "[Workspace]" : "Workspace"}`,
+		`3 ${activeSection === "epics" ? "[Epics]" : "Epics"}`,
+		`4 ${activeSection === "issues" ? "[Issues]" : "Issues"}`,
+	].join("  ")
+	const headerLeft = username ? `GLABUI  ${username}  ${sectionTabs}${activeSection === "merge-requests" ? `  ${viewLabel(activeView)}` : ""}` : `GLABUI  ${sectionTabs}`
 	const headerLine = `${fitCell(headerLeft, Math.max(0, headerFooterWidth - summaryRight.length))}${summaryRight}`
 	const footerNotice = notice ? fitCell(notice, headerFooterWidth) : null
 	const selectPullRequestByUrl = (url: string) => {
@@ -1130,7 +1255,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		setDetailFullView(false)
 		setDiffFullView(false)
 		setDiffCommentRangeStartIndex(null)
-		setFilterDraft(filterQuery)
+		setFilterDraft(sectionFilterQuery)
 		setNotice(null)
 		setRefreshCompletionMessage(null)
 		setRefreshStartedAt(null)
@@ -1351,13 +1476,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	}, [currentQueueCacheKey, selectedIndex])
 
 	useEffect(() => {
-		if (filterMode || filterQuery.length > 0 || visiblePullRequests.length === 0) return
+		if (filterMode || sectionFilterQuery.length > 0 || visiblePullRequests.length === 0) return
 		const thresholdIndex = Math.max(0, visiblePullRequests.length - LOAD_MORE_SELECTION_THRESHOLD)
 		if (selectedIndex >= thresholdIndex) loadMorePullRequests()
-	}, [selectedIndex, visiblePullRequests.length, filterMode, filterQuery, hasMorePullRequests, isLoadingMorePullRequests, currentQueueCacheKey])
+	}, [selectedIndex, visiblePullRequests.length, filterMode, sectionFilterQuery, hasMorePullRequests, isLoadingMorePullRequests, currentQueueCacheKey])
 
 	useEffect(() => {
-		if (filterMode || filterQuery.length > 0 || visiblePullRequests.length === 0 || detailFullView || diffFullView) return
+		if (filterMode || sectionFilterQuery.length > 0 || visiblePullRequests.length === 0 || detailFullView || diffFullView) return
 		if (!hasMorePullRequests || isLoadingMorePullRequests) return
 		const checkScroll = () => {
 			const scroll = prListScrollRef.current
@@ -1368,7 +1493,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		checkScroll()
 		const interval = globalThis.setInterval(checkScroll, 120)
 		return () => globalThis.clearInterval(interval)
-	}, [visiblePullRequests.length, filterMode, filterQuery, detailFullView, diffFullView, hasMorePullRequests, isLoadingMorePullRequests, currentQueueCacheKey])
+	}, [visiblePullRequests.length, filterMode, sectionFilterQuery, detailFullView, diffFullView, hasMorePullRequests, isLoadingMorePullRequests, currentQueueCacheKey])
 
 	useEffect(() => {
 		const scroll = prListScrollRef.current
@@ -1572,6 +1697,67 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	}, [startupLoadComplete, pullRequestStatus])
 
 	useEffect(() => {
+		setFilterDraft(sectionFilterQuery)
+		setFilterMode(false)
+	}, [activeSection])
+
+	useEffect(() => {
+		void loadSettings()
+			.then((settings) => setAppSettings(settings))
+			.catch(() => {})
+	}, [loadSettings, setAppSettings])
+
+	useEffect(() => {
+		setWorkspaceStatus("loading")
+		setWorkspaceError(null)
+		void discoverWorkspaceRepos(workspaceRoot)
+			.then((repos) => {
+				setWorkspaceRepos(repos)
+				setWorkspaceStatus("ready")
+			})
+			.catch((error) => {
+				setWorkspaceRepos([])
+				setWorkspaceStatus("error")
+				setWorkspaceError(errorMessage(error))
+			})
+	}, [discoverWorkspaceRepos, setWorkspaceError, setWorkspaceRepos, setWorkspaceStatus, workspaceRoot])
+
+	useEffect(() => {
+		setIssuesStatus("loading")
+		setIssuesError(null)
+		void loadIssues({
+			mode: selectedRepository ? "repository" : "assigned",
+			repository: selectedRepository,
+			query: issuesFilterQuery,
+			primaryBranches: appSettings.primaryBranches,
+		})
+			.then((items) => {
+				setIssues(items)
+				setIssuesStatus("ready")
+			})
+			.catch((error) => {
+				setIssues([])
+				setIssuesStatus("error")
+				setIssuesError(errorMessage(error))
+			})
+	}, [appSettings.primaryBranches, appSettings.workspaceRoot, issuesFilterQuery, loadIssues, selectedRepository, setIssues, setIssuesError, setIssuesStatus])
+
+	useEffect(() => {
+		setEpicsStatus("loading")
+		setEpicsError(null)
+		void loadEpics({ mode: appSettings.epicMode, query: epicsFilterQuery, labelFilter: appSettings.epicLabelFilter, groupPath: inferredEpicGroupPath })
+			.then((items) => {
+				setEpics(items)
+				setEpicsStatus("ready")
+			})
+			.catch((error) => {
+				setEpics([])
+				setEpicsStatus("error")
+				setEpicsError(errorMessage(error))
+			})
+	}, [appSettings.epicLabelFilter, appSettings.epicMode, epicsFilterQuery, inferredEpicGroupPath, loadEpics, setEpics, setEpicsError, setEpicsStatus])
+
+	useEffect(() => {
 		if (pullRequestStatus !== "ready" || !selectedPullRequest) return
 		hydratePullRequestDetails(selectedPullRequest, true)
 	}, [
@@ -1619,6 +1805,19 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	})
 	const isSelectedPullRequestDetailLoading = selectedPullRequest !== null && !selectedPullRequest.detailLoaded
 	const halfPage = Math.max(1, Math.floor(wideBodyHeight / 2))
+	const selectedWorkspaceRepo = workspaceRepos[selectedWorkspaceIndex] ?? null
+	const selectedIssue = issues[selectedIssueIndex] ?? null
+	const selectedEpic = epics[selectedEpicIndex] ?? null
+	const sectionStatus: LoadStatus =
+		activeSection === "workspace" ? workspaceStatus : activeSection === "issues" ? issuesStatus : activeSection === "epics" ? epicsStatus : pullRequestStatus
+	const sectionHasSelection =
+		activeSection === "merge-requests"
+			? selectedPullRequest !== null
+			: activeSection === "workspace"
+				? selectedWorkspaceRepo !== null
+				: activeSection === "issues"
+					? selectedIssue !== null
+					: selectedEpic !== null
 
 	const loadPullRequestReviewComments = (pullRequest: PullRequestItem, force = false) => {
 		const key = pullRequestDiffKey(pullRequest)
@@ -2533,6 +2732,19 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		})
 	}
 
+	const openSettingsModal = () => {
+		setSettingsModal({
+			themeSummary: "Open theme picker",
+			selectedIndex: 0,
+			editingWorkspaceRoot: false,
+			workspaceRootInput: appSettings.workspaceRoot ?? "",
+			epicMode: appSettings.epicMode,
+			epicLabelFilter: appSettings.epicLabelFilter,
+			systemThemeAutoReload: appSettings.systemThemeAutoReload,
+			error: null,
+		})
+	}
+
 	const themeConfigFromModal = (state: ThemeModalState): ThemeConfig =>
 		state.mode === "fixed" ? fixedThemeConfig(state.fixedTheme) : { mode: "system", darkTheme: state.darkTheme, lightTheme: state.lightTheme }
 
@@ -2866,6 +3078,47 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const openRepositoryPicker = () => {
 		setOpenRepositoryModal({ query: selectedRepository ?? "", error: null })
 	}
+
+	const settingsRowCount = 5
+	const moveSettingsSelection = (delta: -1 | 1) =>
+		setSettingsModal((current) => ({ ...current, selectedIndex: wrapIndex(current.selectedIndex + delta, settingsRowCount), error: null }))
+
+	const saveSettingsModal = () => {
+		const nextSettings: AppSettings = {
+			...appSettings,
+			workspaceRoot: settingsModal.workspaceRootInput.trim() || null,
+			epicMode: settingsModal.epicMode,
+			epicLabelFilter: settingsModal.epicLabelFilter?.trim() ? settingsModal.epicLabelFilter.trim() : null,
+			systemThemeAutoReload: settingsModal.systemThemeAutoReload,
+		}
+		persistAppSettings(nextSettings)
+		closeActiveModal()
+	}
+
+	const activateSettingsSelection = () => {
+		if (settingsModal.selectedIndex === 0) {
+			openThemeModal()
+			return
+		}
+		if (settingsModal.selectedIndex === 1) {
+			setSettingsModal((current) => ({ ...current, editingWorkspaceRoot: !current.editingWorkspaceRoot, error: null }))
+			return
+		}
+		if (settingsModal.selectedIndex === 2) {
+			setSettingsModal((current) => ({ ...current, epicMode: current.epicMode === "assigned" ? "searchable" : "assigned", error: null }))
+			return
+		}
+		if (settingsModal.selectedIndex === 3) {
+			setSettingsModal((current) => ({ ...current, epicLabelFilter: current.epicLabelFilter ? null : "frontend", error: null }))
+			return
+		}
+		setSettingsModal((current) => ({ ...current, systemThemeAutoReload: !current.systemThemeAutoReload, error: null }))
+	}
+
+	void moveSettingsSelection
+	void saveSettingsModal
+	void activateSettingsSelection
+	void openThemeModal
 	const openRepositoryFromInput = () => {
 		const repository = parseRepositoryInput(openRepositoryModal.query)
 		if (!repository) {
@@ -2931,6 +3184,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	}, [
 		renderer,
 		commandPaletteActive,
+		settingsModalActive,
 		openRepositoryModalActive,
 		themeModalActive,
 		themeModal.filterMode,
@@ -2941,9 +3195,66 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		filterMode,
 	])
 
+	const refreshCurrentSection = () => {
+		if (activeSection === "merge-requests") {
+			refreshPullRequests("Refreshed", { resetTransientState: true })
+			return
+		}
+		if (activeSection === "workspace") {
+			setWorkspaceStatus("loading")
+			setWorkspaceError(null)
+			void discoverWorkspaceRepos(workspaceRoot)
+				.then((repos) => {
+					setWorkspaceRepos(repos)
+					setWorkspaceStatus("ready")
+					flashNotice("Refreshed workspace")
+				})
+				.catch((error) => {
+					setWorkspaceRepos([])
+					setWorkspaceStatus("error")
+					setWorkspaceError(errorMessage(error))
+				})
+			return
+		}
+		if (activeSection === "issues") {
+			setIssuesStatus("loading")
+			setIssuesError(null)
+			void loadIssues({
+				mode: selectedRepository ? "repository" : "assigned",
+				repository: selectedRepository,
+				query: issuesFilterQuery,
+				primaryBranches: appSettings.primaryBranches,
+			})
+				.then((items) => {
+					setIssues(items)
+					setIssuesStatus("ready")
+					flashNotice("Refreshed issues")
+				})
+				.catch((error) => {
+					setIssues([])
+					setIssuesStatus("error")
+					setIssuesError(errorMessage(error))
+				})
+			return
+		}
+		setEpicsStatus("loading")
+		setEpicsError(null)
+		void loadEpics({ mode: appSettings.epicMode, query: epicsFilterQuery, labelFilter: appSettings.epicLabelFilter, groupPath: inferredEpicGroupPath })
+			.then((items) => {
+				setEpics(items)
+				setEpicsStatus("ready")
+				flashNotice("Refreshed epics")
+			})
+			.catch((error) => {
+				setEpics([])
+				setEpicsStatus("error")
+				setEpicsError(errorMessage(error))
+			})
+	}
+
 	const appCommands: readonly AppCommand[] = buildAppCommands({
 		pullRequestStatus,
-		filterQuery,
+		filterQuery: sectionFilterQuery,
 		filterMode,
 		selectedRepository,
 		activeViews,
@@ -2967,19 +3278,26 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		selectedDiffCommentAnchorLabel: selectedDiffCommentLabel,
 		selectedDiffCommentThreadCount: selectedDiffCommentThread.length,
 		hasDiffCommentThreads: diffCommentThreadAnchors.length > 0,
+		activeSection,
+		selectedWorkspaceRepo,
+		selectedIssue,
+		selectedEpic,
 		actions: {
 			openCommandPalette,
-			refreshPullRequests,
+			refreshPullRequests: () => refreshCurrentSection(),
 			openFilter: () => {
-				setFilterDraft(filterQuery)
+				setFilterDraft(sectionFilterQuery)
 				setFilterMode(true)
 			},
 			clearFilter: () => {
-				setFilterQuery("")
+				if (activeSection === "merge-requests") setMergeRequestFilterQuery("")
+				else if (activeSection === "workspace") setWorkspaceFilterQuery("")
+				else if (activeSection === "issues") setIssuesFilterQuery("")
+				else setEpicsFilterQuery("")
 				setFilterDraft("")
 				setFilterMode(false)
 			},
-			openThemeModal,
+			openSettingsModal,
 			openRepositoryPicker,
 			loadMorePullRequests,
 			switchViewTo,
@@ -3028,6 +3346,167 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				if (selectedPullRequest) openSelectedProjectInBrowser(selectedPullRequest)
 			},
 			copyPullRequestMetadata: copySelectedPullRequestMetadata,
+			switchSection: (section) => {
+				setActiveSection(section)
+				setDetailFullView(false)
+				setDiffFullView(false)
+				setCommentsViewActive(false)
+				setDetailScrollOffset(0)
+			},
+			selectedSectionCommandOpenDetails: () => {
+				setDetailFullView(true)
+				setDetailScrollOffset(0)
+			},
+			selectedSectionOpenInBrowser: () => {
+				const url = activeSection === "workspace" ? selectedWorkspaceRepo?.projectUrl : activeSection === "issues" ? selectedIssue?.url : selectedEpic?.url
+				if (!url) return
+				void openUrl(url)
+					.then(() => flashNotice(`Opened ${url}`))
+					.catch((error) => flashNotice(errorMessage(error)))
+			},
+			selectedWorkspaceSwitchBranch: () => {
+				if (!selectedWorkspaceRepo) return
+				void switchWorkspaceBranches({
+					rootPath: workspaceRoot,
+					branch: selectedWorkspaceRepo.defaultBranch,
+					exact: true,
+					createIfMissing: false,
+					autoStash: true,
+					fetch: false,
+					pull: false,
+					dryRun: false,
+				})
+					.then((results) => {
+						setWorkspaceBranchResults(results)
+						void discoverWorkspaceRepos(workspaceRoot)
+							.then((repos) => setWorkspaceRepos(repos))
+							.catch(() => {})
+						const selectedResult = results.find((result) => result.repoId === selectedWorkspaceRepo.id)
+						flashNotice(selectedResult ? `${selectedResult.repoName}: ${selectedResult.message}` : `Switched workspace to ${selectedWorkspaceRepo.defaultBranch}`)
+					})
+					.catch((error) => flashNotice(errorMessage(error)))
+			},
+			selectedIssueSetPrimaryBranch: () => {
+				if (!selectedIssue) return
+				const key = selectedIssue.references ?? `${selectedIssue.repository}#${selectedIssue.number}`
+				const branch = issueBranchNameFor(selectedIssue)
+				const next = { ...appSettings, primaryBranches: { ...appSettings.primaryBranches, [key]: branch } }
+				persistAppSettings(next, `Primary branch set to ${branch}`)
+			},
+			selectedIssueCreateBranch: () => {
+				if (!selectedIssue) return
+				const repo = workspaceRepos.find((entry) => entry.projectPath === selectedIssue.repository)
+				if (!repo) {
+					flashNotice(`Repository not found in workspace: ${selectedIssue.repository}`)
+					return
+				}
+				const branch = issueBranchNameFor(selectedIssue)
+				void runShellCommand("git", ["switch", "-c", branch], repo.path)
+					.then(() => {
+						const key = selectedIssue.references ?? `${selectedIssue.repository}#${selectedIssue.number}`
+						persistAppSettings({ ...appSettings, primaryBranches: { ...appSettings.primaryBranches, [key]: branch } })
+						flashNotice(`Created branch ${branch}`)
+						void discoverWorkspaceRepos(workspaceRoot)
+							.then((repos) => setWorkspaceRepos(repos))
+							.catch(() => {})
+					})
+					.catch((error) => flashNotice(errorMessage(error)))
+			},
+			selectedIssueCreateMergeRequest: () => {
+				if (!selectedIssue) return
+				const repo = workspaceRepos.find((entry) => entry.projectPath === selectedIssue.repository)
+				if (!repo) {
+					flashNotice(`Repository not found in workspace: ${selectedIssue.repository}`)
+					return
+				}
+				const branch = issueBranchNameFor(selectedIssue)
+				void runShellCommand(
+					"glab",
+					["mr", "create", "--fill", "--related-issue", String(selectedIssue.number), "--source-branch", branch, "--target-branch", repo.defaultBranch],
+					repo.path,
+				)
+					.then(() => flashNotice(`Created MR for #${selectedIssue.number}`))
+					.catch((error) => flashNotice(errorMessage(error)))
+			},
+			selectedEpicCheckoutBranches: () => {
+				if (!selectedEpic) return
+				void loadEpicIssues({ groupPath: selectedEpic.groupPath, epicIid: selectedEpic.iid, primaryBranches: appSettings.primaryBranches })
+					.then((epicIssues) => {
+						const issuesWithBranches = epicIssues.filter((issue) => issue.primaryBranch?.trim())
+						if (issuesWithBranches.length === 0) {
+							flashNotice("No primary branches saved for epic issues")
+							return
+						}
+						void Promise.all(
+							issuesWithBranches.map((issue) => {
+								const repo = workspaceRepos.find((entry) => entry.projectPath === issue.repository)
+								if (!repo) return Promise.resolve<WorkspaceBranchSwitchResult | null>(null)
+								const branch = issue.primaryBranch!.trim()
+								return runShellCommand("git", ["switch", branch], repo.path)
+									.then(
+										() =>
+											({
+												repoId: repo.id,
+												repoName: repo.name,
+												previousBranch: repo.branch,
+												nextBranch: branch,
+												status: repo.branch === branch ? "already-on" : "switched",
+												message: repo.branch === branch ? "already on branch" : "switched",
+												stashed: false,
+											}) satisfies WorkspaceBranchSwitchResult,
+									)
+									.catch(
+										(error) =>
+											({
+												repoId: repo.id,
+												repoName: repo.name,
+												previousBranch: repo.branch,
+												nextBranch: branch,
+												status: "failed",
+												message: errorMessage(error),
+												stashed: false,
+											}) satisfies WorkspaceBranchSwitchResult,
+									)
+							}),
+						)
+							.then((results) => {
+								setWorkspaceBranchResults(results.filter((result): result is WorkspaceBranchSwitchResult => result !== null))
+								void discoverWorkspaceRepos(workspaceRoot)
+									.then((repos) => setWorkspaceRepos(repos))
+									.catch(() => {})
+								flashNotice(`Processed ${issuesWithBranches.length} epic branches`)
+							})
+							.catch((error) => flashNotice(errorMessage(error)))
+					})
+					.catch((error) => flashNotice(errorMessage(error)))
+			},
+			selectedEpicCreateMergeRequests: () => {
+				if (!selectedEpic) return
+				void loadEpicIssues({ groupPath: selectedEpic.groupPath, epicIid: selectedEpic.iid, primaryBranches: appSettings.primaryBranches })
+					.then((epicIssues) => {
+						const openIssues = epicIssues.filter((issue) => issue.state === "opened" && issue.primaryBranch)
+						if (openIssues.length === 0) {
+							flashNotice("No open epic issues with primary branches")
+							return
+						}
+						void Promise.all(
+							openIssues.map((issue) => {
+								const repo = workspaceRepos.find((entry) => entry.projectPath === issue.repository)
+								if (!repo) return Promise.resolve(false)
+								return runShellCommand(
+									"glab",
+									["mr", "create", "--fill", "--related-issue", String(issue.number), "--source-branch", issueBranchNameFor(issue), "--target-branch", repo.defaultBranch],
+									repo.path,
+								)
+									.then(() => true)
+									.catch(() => false)
+							}),
+						)
+							.then((results) => flashNotice(`Created ${results.filter(Boolean).length}/${openIssues.length} epic MRs`))
+							.catch((error) => flashNotice(errorMessage(error)))
+					})
+					.catch((error) => flashNotice(errorMessage(error)))
+			},
 			quit: () => renderer.destroy(),
 		},
 	})
@@ -3068,7 +3547,25 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				commandPalette.query,
 			)
 		: []
-	const activePaletteScope: CommandScope | null = commentsViewActive ? "Comments" : diffFullView ? "Diff" : detailFullView ? "Pull request" : null
+	const activePaletteScope: CommandScope | null = commentsViewActive
+		? "Comments"
+		: diffFullView
+			? "Diff"
+			: detailFullView
+				? activeSection === "workspace"
+					? "Workspace"
+					: activeSection === "issues"
+						? "Issues"
+						: activeSection === "epics"
+							? "Epics"
+							: "Pull request"
+				: activeSection === "workspace"
+					? "Workspace"
+					: activeSection === "issues"
+						? "Issues"
+						: activeSection === "epics"
+							? "Epics"
+							: null
 	const commandPaletteCommands = commandPaletteActive
 		? [...dynamicPaletteCommands, ...(commandPalette.query.trim().length > 0 ? staticPaletteCommands : sortCommandsByActiveScope(staticPaletteCommands, activePaletteScope))]
 		: []
@@ -3157,6 +3654,10 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			loadMorePullRequests()
 			return
 		}
+
+		if (settingsModalActive) {
+			return
+		}
 		setSelectedIndex((current) => {
 			if (visiblePullRequests.length === 0) return 0
 			return current >= visiblePullRequests.length - 1 ? 0 : current + 1
@@ -3182,6 +3683,10 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return
 		}
 		if (activeModal._tag !== "None") {
+			if (settingsModalActive && settingsModal.editingWorkspaceRoot) {
+				setSettingsModal((current) => ({ ...current, editingWorkspaceRoot: false, error: null }))
+				return
+			}
 			closeActiveModal()
 			return
 		}
@@ -3210,6 +3715,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			commentModalActive ||
 			commandPaletteActive ||
 			openRepositoryModalActive ||
+			(settingsModalActive && settingsModal.editingWorkspaceRoot) ||
 			changedFilesModalActive ||
 			submitReviewModalActive ||
 			labelModalActive ||
@@ -3322,11 +3828,14 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		},
 		filterModeCtx: {
 			cancel: () => {
-				setFilterDraft(filterQuery)
+				setFilterDraft(sectionFilterQuery)
 				setFilterMode(false)
 			},
 			commit: () => {
-				setFilterQuery(filterDraft)
+				if (activeSection === "merge-requests") setMergeRequestFilterQuery(filterDraft)
+				else if (activeSection === "workspace") setWorkspaceFilterQuery(filterDraft)
+				else if (activeSection === "issues") setIssuesFilterQuery(filterDraft)
+				else setEpicsFilterQuery(filterDraft)
 				setFilterMode(false)
 			},
 		},
@@ -3358,7 +3867,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			scrollBy: scrollDetailFullViewBy,
 			scrollTo: scrollDetailFullViewTo,
 			closeDetail: () => runCommandById("detail.close"),
-			openTheme: () => runCommandById("theme.open"),
+			openTheme: () => runCommandById("settings.open"),
 			openDiff: () => runCommandById("diff.open"),
 			openComments: () => runCommandById("comments.open"),
 			closePullRequest: () => runCommandById("pull.close"),
@@ -3386,9 +3895,16 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		},
 		listNav: {
 			halfPage,
-			visibleCount: visiblePullRequests.length,
-			hasFilter: filterQuery.length > 0,
-			canScrollDetailPreview: isWideLayout && selectedPullRequest !== null,
+			visibleCount:
+				activeSection === "merge-requests"
+					? visiblePullRequests.length
+					: activeSection === "workspace"
+						? workspaceRepos.length
+						: activeSection === "issues"
+							? issues.length
+							: epics.length,
+			hasFilter: sectionFilterQuery.length > 0,
+			canScrollDetailPreview: isWideLayout && sectionHasSelection,
 			runCommandById: (id) => {
 				runCommandById(id)
 			},
@@ -3398,17 +3914,61 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			clearFilter: () => {
 				runCommandById("filter.clear")
 			},
-			stepSelected,
-			stepSelectedUp,
-			stepSelectedDown,
-			stepSelectedUpWrap,
-			stepSelectedDownWithLoadMore,
-			moveSelectedToPreviousGroup,
-			moveSelectedToNextGroup,
-			setSelected: (index) => setSelectedIndex(index),
+			stepSelected: (delta) => {
+				if (activeSection === "merge-requests") stepSelected(delta)
+				else if (activeSection === "workspace") setSelectedWorkspaceIndex((current) => Math.max(0, Math.min(Math.max(0, workspaceRepos.length - 1), current + delta)))
+				else if (activeSection === "issues") setSelectedIssueIndex((current) => Math.max(0, Math.min(Math.max(0, issues.length - 1), current + delta)))
+				else setSelectedEpicIndex((current) => Math.max(0, Math.min(Math.max(0, epics.length - 1), current + delta)))
+			},
+			stepSelectedUp: (count = 1) => {
+				if (activeSection === "merge-requests") stepSelectedUp(count)
+				else if (activeSection === "workspace") setSelectedWorkspaceIndex((current) => Math.max(0, current - count))
+				else if (activeSection === "issues") setSelectedIssueIndex((current) => Math.max(0, current - count))
+				else setSelectedEpicIndex((current) => Math.max(0, current - count))
+			},
+			stepSelectedDown: (count = 1) => {
+				if (activeSection === "merge-requests") stepSelectedDown(count)
+				else if (activeSection === "workspace") setSelectedWorkspaceIndex((current) => Math.min(Math.max(0, workspaceRepos.length - 1), current + count))
+				else if (activeSection === "issues") setSelectedIssueIndex((current) => Math.min(Math.max(0, issues.length - 1), current + count))
+				else setSelectedEpicIndex((current) => Math.min(Math.max(0, epics.length - 1), current + count))
+			},
+			stepSelectedUpWrap: () => {
+				if (activeSection === "merge-requests") stepSelectedUpWrap()
+				else if (activeSection === "workspace") setSelectedWorkspaceIndex((current) => (workspaceRepos.length === 0 ? 0 : current <= 0 ? workspaceRepos.length - 1 : current - 1))
+				else if (activeSection === "issues") setSelectedIssueIndex((current) => (issues.length === 0 ? 0 : current <= 0 ? issues.length - 1 : current - 1))
+				else setSelectedEpicIndex((current) => (epics.length === 0 ? 0 : current <= 0 ? epics.length - 1 : current - 1))
+			},
+			stepSelectedDownWithLoadMore: () => {
+				if (activeSection === "merge-requests") stepSelectedDownWithLoadMore()
+				else if (activeSection === "workspace") setSelectedWorkspaceIndex((current) => (workspaceRepos.length === 0 ? 0 : current >= workspaceRepos.length - 1 ? 0 : current + 1))
+				else if (activeSection === "issues") setSelectedIssueIndex((current) => (issues.length === 0 ? 0 : current >= issues.length - 1 ? 0 : current + 1))
+				else setSelectedEpicIndex((current) => (epics.length === 0 ? 0 : current >= epics.length - 1 ? 0 : current + 1))
+			},
+			moveSelectedToPreviousGroup: () => {
+				if (activeSection === "merge-requests") moveSelectedToPreviousGroup()
+			},
+			moveSelectedToNextGroup: () => {
+				if (activeSection === "merge-requests") moveSelectedToNextGroup()
+			},
+			setSelected: (index) => {
+				if (activeSection === "merge-requests") setSelectedIndex(index)
+				else if (activeSection === "workspace") setSelectedWorkspaceIndex(index)
+				else if (activeSection === "issues") setSelectedIssueIndex(index)
+				else setSelectedEpicIndex(index)
+			},
 		},
 		openCommandPalette: () => {
 			runCommandById("command.open")
+		},
+		switchSectionByNumber: (index) => {
+			const section = appSectionOrder[index - 1]
+			if (section) setActiveSection(section)
+		},
+		nextSection: (delta) => {
+			setActiveSection((current) => nextAppSection(current, delta))
+			setDetailFullView(false)
+			setDiffFullView(false)
+			setCommentsViewActive(false)
 		},
 		handleQuitOrClose,
 	}
@@ -3416,6 +3976,34 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	useKeymap(appKeymap, appCtx, useOpenTuiSubscribe())
 
 	useKeyboard((key) => {
+		if (settingsModalActive) {
+			if (key.name === "return") {
+				if (settingsModal.editingWorkspaceRoot) saveSettingsModal()
+				else activateSettingsSelection()
+				return
+			}
+			if (key.name === "escape") {
+				if (settingsModal.editingWorkspaceRoot) setSettingsModal((current) => ({ ...current, editingWorkspaceRoot: false, error: null }))
+				else closeActiveModal()
+				return
+			}
+			if (key.name === "up" || key.name === "k") {
+				if (!settingsModal.editingWorkspaceRoot) moveSettingsSelection(-1)
+				return
+			}
+			if (key.name === "down" || key.name === "j") {
+				if (!settingsModal.editingWorkspaceRoot) moveSettingsSelection(1)
+				return
+			}
+			if (key.name === "space") {
+				if (!settingsModal.editingWorkspaceRoot) activateSettingsSelection()
+				return
+			}
+			if (settingsModal.editingWorkspaceRoot && isSingleLineInputKey(key)) {
+				setSettingsModal((current) => ({ ...current, workspaceRootInput: editSingleLineInput(current.workspaceRootInput, key) ?? current.workspaceRootInput, error: null }))
+			}
+			return
+		}
 		if (commandPaletteActive) {
 			if (isSingleLineInputKey(key)) {
 				setCommandPalette((current) => {
@@ -3532,7 +4120,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		status: pullRequestStatus,
 		error: pullRequestError,
 		filterText: visibleFilterText,
-		showFilterBar: filterMode || filterQuery.length > 0,
+		showFilterBar: filterMode || sectionFilterQuery.length > 0,
 		isFilterEditing: filterMode,
 		loadedCount: loadedPullRequestCount,
 		hasMore: hasMorePullRequests,
@@ -3634,6 +4222,158 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		})
 	}
 
+	const wideSectionList =
+		activeSection === "workspace" ? (
+			<box paddingLeft={sectionPadding} paddingRight={0}>
+				<SectionList
+					title="Workspace"
+					items={workspaceRepos.map(workspaceRepoAsListItem)}
+					selectedId={selectedWorkspaceRepo?.id ?? null}
+					status={workspaceStatus}
+					error={workspaceError}
+					filterText={workspaceFilterQuery}
+					showFilterBar={filterMode || workspaceFilterQuery.length > 0}
+					isFilterEditing={filterMode}
+					emptyText="No repositories found"
+					onSelect={(id) =>
+						setSelectedWorkspaceIndex(
+							Math.max(
+								0,
+								workspaceRepos.findIndex((repo) => repo.id === id),
+							),
+						)
+					}
+				/>
+			</box>
+		) : activeSection === "issues" ? (
+			<box paddingLeft={sectionPadding} paddingRight={0}>
+				<SectionList
+					title="Issues"
+					items={issues.map(issueAsListItem)}
+					selectedId={selectedIssue?.url ?? null}
+					status={issuesStatus}
+					error={issuesError}
+					filterText={issuesFilterQuery}
+					showFilterBar={filterMode || issuesFilterQuery.length > 0}
+					isFilterEditing={filterMode}
+					emptyText="No issues found"
+					onSelect={(id) =>
+						setSelectedIssueIndex(
+							Math.max(
+								0,
+								issues.findIndex((issue) => issue.url === id),
+							),
+						)
+					}
+				/>
+			</box>
+		) : activeSection === "epics" ? (
+			<box paddingLeft={sectionPadding} paddingRight={0}>
+				<SectionList
+					title="Epics"
+					items={epics.map(epicAsListItem)}
+					selectedId={selectedEpic?.id ?? null}
+					status={epicsStatus}
+					error={epicsError}
+					filterText={epicsFilterQuery}
+					showFilterBar={filterMode || epicsFilterQuery.length > 0}
+					isFilterEditing={filterMode}
+					emptyText="No epics found"
+					onSelect={(id) =>
+						setSelectedEpicIndex(
+							Math.max(
+								0,
+								epics.findIndex((epic) => epic.id === id),
+							),
+						)
+					}
+				/>
+			</box>
+		) : null
+
+	const narrowSectionList =
+		activeSection === "workspace" ? (
+			<box paddingLeft={sectionPadding} paddingRight={sectionPadding}>
+				<SectionList
+					title="Workspace"
+					items={workspaceRepos.map(workspaceRepoAsListItem)}
+					selectedId={selectedWorkspaceRepo?.id ?? null}
+					status={workspaceStatus}
+					error={workspaceError}
+					filterText={workspaceFilterQuery}
+					showFilterBar={filterMode || workspaceFilterQuery.length > 0}
+					isFilterEditing={filterMode}
+					emptyText="No repositories found"
+					onSelect={(id) =>
+						setSelectedWorkspaceIndex(
+							Math.max(
+								0,
+								workspaceRepos.findIndex((repo) => repo.id === id),
+							),
+						)
+					}
+				/>
+			</box>
+		) : activeSection === "issues" ? (
+			<box paddingLeft={sectionPadding} paddingRight={sectionPadding}>
+				<SectionList
+					title="Issues"
+					items={issues.map(issueAsListItem)}
+					selectedId={selectedIssue?.url ?? null}
+					status={issuesStatus}
+					error={issuesError}
+					filterText={issuesFilterQuery}
+					showFilterBar={filterMode || issuesFilterQuery.length > 0}
+					isFilterEditing={filterMode}
+					emptyText="No issues found"
+					onSelect={(id) =>
+						setSelectedIssueIndex(
+							Math.max(
+								0,
+								issues.findIndex((issue) => issue.url === id),
+							),
+						)
+					}
+				/>
+			</box>
+		) : activeSection === "epics" ? (
+			<box paddingLeft={sectionPadding} paddingRight={sectionPadding}>
+				<SectionList
+					title="Epics"
+					items={epics.map(epicAsListItem)}
+					selectedId={selectedEpic?.id ?? null}
+					status={epicsStatus}
+					error={epicsError}
+					filterText={epicsFilterQuery}
+					showFilterBar={filterMode || epicsFilterQuery.length > 0}
+					isFilterEditing={filterMode}
+					emptyText="No epics found"
+					onSelect={(id) =>
+						setSelectedEpicIndex(
+							Math.max(
+								0,
+								epics.findIndex((epic) => epic.id === id),
+							),
+						)
+					}
+				/>
+			</box>
+		) : null
+
+	const sectionDetailPane =
+		activeSection === "workspace" ? (
+			<WorkspaceDetails
+				repo={selectedWorkspaceRepo}
+				contentWidth={isWideLayout ? rightContentWidth : fullscreenContentWidth}
+				paneWidth={isWideLayout ? rightPaneWidth : contentWidth}
+				results={workspaceBranchResults}
+			/>
+		) : activeSection === "issues" ? (
+			<IssueDetails issue={selectedIssue} contentWidth={isWideLayout ? rightContentWidth : fullscreenContentWidth} paneWidth={isWideLayout ? rightPaneWidth : contentWidth} />
+		) : activeSection === "epics" ? (
+			<EpicDetails epic={selectedEpic} contentWidth={isWideLayout ? rightContentWidth : fullscreenContentWidth} paneWidth={isWideLayout ? rightPaneWidth : contentWidth} />
+		) : null
+
 	return (
 		<box width={terminalWidth} height={terminalHeight} flexDirection="column" backgroundColor={colors.background} onMouseUp={handleRootMouseUp}>
 			<box paddingLeft={1} paddingRight={1} flexDirection="column" backgroundColor={colors.background}>
@@ -3644,7 +4384,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			) : (
 				<Divider width={contentWidth} />
 			)}
-			{commentsViewActive && selectedPullRequest ? (
+			{activeSection === "merge-requests" && commentsViewActive && selectedPullRequest ? (
 				<CommentsPane
 					pullRequest={selectedPullRequest}
 					comments={selectedComments}
@@ -3657,7 +4397,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					loadingIndicator={loadingIndicator}
 					themeGeneration={systemThemeGeneration}
 				/>
-			) : diffFullView ? (
+			) : activeSection === "merge-requests" && diffFullView ? (
 				<PullRequestDiffPane
 					pullRequest={selectedPullRequest}
 					diffState={displayedDiffState}
@@ -3678,7 +4418,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					themeId={themeId}
 					themeGeneration={systemThemeGeneration}
 				/>
-			) : detailFullView && isSelectedPullRequestDetailLoading && selectedPullRequest ? (
+			) : activeSection === "merge-requests" && detailFullView && isSelectedPullRequestDetailLoading && selectedPullRequest ? (
 				<box flexGrow={1} flexDirection="column">
 					<DetailHeader
 						pullRequest={selectedPullRequest}
@@ -3691,7 +4431,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					/>
 					<Filler rows={Math.max(1, wideBodyHeight - fullscreenDetailHeaderHeight)} prefix="detail-loading-full" />
 				</box>
-			) : isWideLayout && detailFullView ? (
+			) : activeSection !== "merge-requests" && detailFullView ? (
+				<box flexGrow={1} flexDirection="column">
+					<scrollbox ref={detailScrollRef} focusable={false} flexGrow={1}>
+						{sectionDetailPane}
+					</scrollbox>
+				</box>
+			) : activeSection === "merge-requests" && isWideLayout && detailFullView ? (
 				<box flexGrow={1} flexDirection="column">
 					{selectedPullRequest ? (
 						<>
@@ -3730,6 +4476,20 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 							onLinkOpen={openLinkInBrowser}
 						/>
 					)}
+				</box>
+			) : isWideLayout && activeSection !== "merge-requests" ? (
+				<box key="wide-section-main" flexGrow={1} flexDirection="row">
+					<box width={leftPaneWidth} height={wideBodyHeight} flexDirection="column">
+						<scrollbox ref={prListScrollRef} focusable={false} height={wideBodyHeight} flexGrow={0}>
+							{wideSectionList}
+						</scrollbox>
+					</box>
+					<SeparatorColumn height={wideBodyHeight} />
+					<box width={rightPaneWidth} height={wideBodyHeight} flexDirection="column">
+						<scrollbox ref={detailPreviewScrollRef} flexGrow={1}>
+							{sectionDetailPane}
+						</scrollbox>
+					</box>
 				</box>
 			) : isWideLayout ? (
 				<box key="wide-main" flexGrow={1} flexDirection="row">
@@ -3788,7 +4548,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						)}
 					</box>
 				</box>
-			) : detailFullView ? (
+			) : activeSection === "merge-requests" && detailFullView ? (
 				<box flexGrow={1} flexDirection="column">
 					{selectedPullRequest ? (
 						<>
@@ -3826,6 +4586,18 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 							onLinkOpen={openLinkInBrowser}
 						/>
 					)}
+				</box>
+			) : activeSection !== "merge-requests" ? (
+				<box key="narrow-section-main" height={wideBodyHeight} flexDirection="column">
+					<scrollbox ref={detailPreviewScrollRef} focusable={false} flexGrow={0} height={Math.max(8, Math.floor(wideBodyHeight / 2))}>
+						{sectionDetailPane}
+					</scrollbox>
+					<Divider width={contentWidth} />
+					<box flexGrow={1} flexDirection="column">
+						<scrollbox ref={prListScrollRef} focusable={false} flexGrow={1}>
+							{narrowSectionList}
+						</scrollbox>
+					</box>
 				</box>
 			) : (
 				<box key="narrow-main" height={wideBodyHeight} flexDirection="column">
@@ -3868,19 +4640,20 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				) : (
 					<FooterHints
 						filterEditing={filterMode}
-						showFilterClear={filterMode || filterQuery.length > 0}
+						showFilterClear={filterMode || sectionFilterQuery.length > 0}
 						detailFullView={detailFullView}
-						diffFullView={diffFullView}
-						diffRangeActive={diffCommentRangeActive}
-						commentsViewActive={commentsViewActive}
-						commentsViewOnRealComment={commentsViewActive && selectedCommentsStatus === "ready" && selectedOrderedComment !== null}
-						commentsViewCanEditSelected={canEditComment(selectedOrderedComment)}
-						commentsViewCount={selectedComments.length}
-						hasSelection={selectedPullRequest !== null}
-						hasError={pullRequestStatus === "error"}
+						diffFullView={activeSection === "merge-requests" ? diffFullView : false}
+						diffRangeActive={activeSection === "merge-requests" ? diffCommentRangeActive : false}
+						commentsViewActive={activeSection === "merge-requests" ? commentsViewActive : false}
+						commentsViewOnRealComment={activeSection === "merge-requests" && commentsViewActive && selectedCommentsStatus === "ready" && selectedOrderedComment !== null}
+						commentsViewCanEditSelected={activeSection === "merge-requests" ? canEditComment(selectedOrderedComment) : false}
+						commentsViewCount={activeSection === "merge-requests" ? selectedComments.length : 0}
+						hasSelection={sectionHasSelection}
+						hasError={sectionStatus === "error"}
 						selectedPullRequestOpen={selectedPullRequest?.state === "open"}
+						section={activeSection}
 						isLoading={
-							pullRequestStatus === "loading" ||
+							sectionStatus === "loading" ||
 							isRefreshingPullRequests ||
 							isHydratingPullRequestDetails ||
 							closeModal.running ||
@@ -4009,6 +4782,9 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					onSelectCommandIndex={selectCommandPaletteIndex}
 					onRunCommand={runCommandPaletteCommand}
 				/>
+			) : null}
+			{settingsModalActive ? (
+				<SettingsModal state={settingsModal} modalWidth={themeModalWidth} modalHeight={themeModalHeight} offsetLeft={themeModalLeft} offsetTop={themeModalTop} />
 			) : null}
 		</box>
 	)

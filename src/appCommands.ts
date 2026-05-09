@@ -1,15 +1,16 @@
 import type { AppCommand } from "./commands.js"
 import { defineCommand } from "./commands.js"
-import type { LoadStatus, PullRequestItem, PullRequestReviewEvent } from "./domain.js"
+import type { AppSection, EpicItem, IssueItem, LoadStatus, PullRequestItem, PullRequestReviewEvent, WorkspaceRepo } from "./domain.js"
 import type { DiffView, DiffWhitespaceMode, DiffWrapMode } from "./ui/diff.js"
 import { type PullRequestView, viewEquals, viewLabel, viewMode } from "./pullRequestViews.js"
+import { appSectionLabel, appSectionOrder } from "./appSections.js"
 
 interface AppCommandActions {
 	readonly openCommandPalette: () => void
 	readonly refreshPullRequests: (message?: string, options?: { readonly resetTransientState?: boolean }) => void
 	readonly openFilter: () => void
 	readonly clearFilter: () => void
-	readonly openThemeModal: () => void
+	readonly openSettingsModal: () => void
 	readonly openRepositoryPicker: () => void
 	readonly loadMorePullRequests: () => void
 	readonly switchViewTo: (view: PullRequestView) => void
@@ -42,6 +43,15 @@ interface AppCommandActions {
 	readonly openProjectInBrowser: () => void
 	readonly copyPullRequestMetadata: () => void
 	readonly quit: () => void
+	readonly switchSection: (section: AppSection) => void
+	readonly selectedSectionCommandOpenDetails: () => void
+	readonly selectedSectionOpenInBrowser: () => void
+	readonly selectedWorkspaceSwitchBranch: () => void
+	readonly selectedIssueSetPrimaryBranch: () => void
+	readonly selectedIssueCreateBranch: () => void
+	readonly selectedIssueCreateMergeRequest: () => void
+	readonly selectedEpicCheckoutBranches: () => void
+	readonly selectedEpicCreateMergeRequests: () => void
 }
 
 interface BuildAppCommandsInput {
@@ -71,6 +81,10 @@ interface BuildAppCommandsInput {
 	readonly selectedDiffCommentThreadCount: number
 	readonly hasDiffCommentThreads: boolean
 	readonly actions: AppCommandActions
+	readonly activeSection: AppSection
+	readonly selectedWorkspaceRepo: WorkspaceRepo | null
+	readonly selectedIssue: IssueItem | null
+	readonly selectedEpic: EpicItem | null
 }
 
 export const buildAppCommands = ({
@@ -100,6 +114,10 @@ export const buildAppCommands = ({
 	selectedDiffCommentThreadCount,
 	hasDiffCommentThreads,
 	actions,
+	activeSection,
+	selectedWorkspaceRepo,
+	selectedIssue,
+	selectedEpic,
 }: BuildAppCommandsInput): readonly AppCommand[] => {
 	const selectedPullRequestLabel = selectedPullRequest ? `#${selectedPullRequest.number} ${selectedPullRequest.repository}` : "No merge request selected"
 	const noPullRequestReason = selectedPullRequest ? null : "Select a merge request first."
@@ -123,6 +141,16 @@ export const buildAppCommands = ({
 	}
 
 	return [
+		...appSectionOrder.map((section, index) =>
+			defineCommand({
+				id: `section.${section}`,
+				title: `Open ${appSectionLabel(section)}`,
+				scope: "View",
+				shortcut: String(index + 1),
+				disabledReason: activeSection === section ? `Already showing ${appSectionLabel(section)}.` : null,
+				run: () => actions.switchSection(section),
+			}),
+		),
 		defineCommand({
 			id: "command.open",
 			title: "Open command palette",
@@ -134,7 +162,12 @@ export const buildAppCommands = ({
 		}),
 		defineCommand({
 			id: "pull.refresh",
-			title: pullRequestStatus === "error" ? "Retry loading merge requests" : "Refresh merge requests",
+			title:
+				activeSection === "merge-requests"
+					? pullRequestStatus === "error"
+						? "Retry loading merge requests"
+						: "Refresh merge requests"
+					: `Refresh ${appSectionLabel(activeSection)}`,
 			scope: "Global",
 			subtitle: "Fetch the latest queue from GitLab",
 			shortcut: "r",
@@ -143,7 +176,7 @@ export const buildAppCommands = ({
 		}),
 		defineCommand({
 			id: "filter.open",
-			title: "Filter merge requests",
+			title: `Filter ${appSectionLabel(activeSection)}`,
 			scope: "Global",
 			subtitle: "Search the visible queue",
 			shortcut: "/",
@@ -152,7 +185,7 @@ export const buildAppCommands = ({
 		}),
 		defineCommand({
 			id: "filter.clear",
-			title: "Clear merge request filter",
+			title: `Clear ${appSectionLabel(activeSection)} filter`,
 			scope: "Global",
 			subtitle: "Show every merge request in the current queue",
 			shortcut: "esc",
@@ -160,13 +193,13 @@ export const buildAppCommands = ({
 			run: actions.clearFilter,
 		}),
 		defineCommand({
-			id: "theme.open",
-			title: "Choose theme",
+			id: "settings.open",
+			title: "Open settings",
 			scope: "Global",
-			subtitle: "Preview and persist a terminal color theme",
+			subtitle: "Theme, workspace root, epic options, and other preferences",
 			shortcut: "t",
-			keywords: ["colors", "appearance"],
-			run: actions.openThemeModal,
+			keywords: ["settings", "colors", "appearance", "preferences"],
+			run: actions.openSettingsModal,
 		}),
 		defineCommand({
 			id: "repository.open",
@@ -453,6 +486,105 @@ export const buildAppCommands = ({
 			shortcut: "y",
 			keywords: ["clipboard", "url", "title"],
 			run: actions.copyPullRequestMetadata,
+		}),
+		defineCommand({
+			id: "workspace.switch-branch",
+			title: "Switch branch across workspace",
+			scope: "Workspace",
+			subtitle: selectedWorkspaceRepo ? selectedWorkspaceRepo.name : "No workspace repo selected",
+			disabledReason: selectedWorkspaceRepo ? null : "Select a workspace repository first.",
+			shortcut: "b",
+			run: actions.selectedWorkspaceSwitchBranch,
+		}),
+		defineCommand({
+			id: "workspace.open-browser",
+			title: "Open workspace project in browser",
+			scope: "Workspace",
+			subtitle: selectedWorkspaceRepo ? selectedWorkspaceRepo.name : "No workspace repo selected",
+			disabledReason: selectedWorkspaceRepo ? null : "Select a workspace repository first.",
+			shortcut: "o",
+			run: actions.selectedSectionOpenInBrowser,
+		}),
+		defineCommand({
+			id: "issues.open-detail",
+			title: "Open issue details",
+			scope: "Issues",
+			subtitle: selectedIssue ? `#${selectedIssue.number} ${selectedIssue.repository}` : "No issue selected",
+			disabledReason: selectedIssue ? null : "Select an issue first.",
+			shortcut: "enter",
+			run: actions.selectedSectionCommandOpenDetails,
+		}),
+		defineCommand({
+			id: "issues.primary-branch",
+			title: "Set issue primary branch",
+			scope: "Issues",
+			subtitle: selectedIssue ? `#${selectedIssue.number} ${selectedIssue.repository}` : "No issue selected",
+			disabledReason: selectedIssue ? null : "Select an issue first.",
+			shortcut: "b",
+			run: actions.selectedIssueSetPrimaryBranch,
+		}),
+		defineCommand({
+			id: "issues.create-branch",
+			title: "Create branch from issue",
+			scope: "Issues",
+			subtitle: selectedIssue ? `#${selectedIssue.number} ${selectedIssue.repository}` : "No issue selected",
+			disabledReason: selectedIssue ? null : "Select an issue first.",
+			shortcut: "n",
+			run: actions.selectedIssueCreateBranch,
+		}),
+		defineCommand({
+			id: "issues.create-mr",
+			title: "Create merge request from issue",
+			scope: "Issues",
+			subtitle: selectedIssue ? `#${selectedIssue.number} ${selectedIssue.repository}` : "No issue selected",
+			disabledReason: selectedIssue ? null : "Select an issue first.",
+			shortcut: "m",
+			run: actions.selectedIssueCreateMergeRequest,
+		}),
+		defineCommand({
+			id: "issues.open-browser",
+			title: "Open issue in browser",
+			scope: "Issues",
+			subtitle: selectedIssue ? `#${selectedIssue.number} ${selectedIssue.repository}` : "No issue selected",
+			disabledReason: selectedIssue ? null : "Select an issue first.",
+			shortcut: "o",
+			run: actions.selectedSectionOpenInBrowser,
+		}),
+		defineCommand({
+			id: "epics.open-detail",
+			title: "Open epic details",
+			scope: "Epics",
+			subtitle: selectedEpic ? `#${selectedEpic.iid} ${selectedEpic.groupPath}` : "No epic selected",
+			disabledReason: selectedEpic ? null : "Select an epic first.",
+			shortcut: "enter",
+			run: actions.selectedSectionCommandOpenDetails,
+		}),
+		defineCommand({
+			id: "epics.checkout-branches",
+			title: "Checkout epic primary branches",
+			scope: "Epics",
+			subtitle: selectedEpic ? `#${selectedEpic.iid} ${selectedEpic.groupPath}` : "No epic selected",
+			disabledReason: selectedEpic ? null : "Select an epic first.",
+			shortcut: "b",
+			run: actions.selectedEpicCheckoutBranches,
+		}),
+		defineCommand({
+			id: "epics.bulk-mr",
+			title: "Create merge requests for epic issues",
+			scope: "Epics",
+			subtitle: selectedEpic ? `#${selectedEpic.iid} ${selectedEpic.groupPath}` : "No epic selected",
+			disabledReason: selectedEpic ? null : "Select an epic first.",
+			shortcut: "m",
+			run: actions.selectedEpicCreateMergeRequests,
+		}),
+		defineCommand({
+			id: "epics.open-browser",
+			title: "Open epic in browser",
+			scope: "Epics",
+			subtitle: selectedEpic ? `#${selectedEpic.iid} ${selectedEpic.groupPath}` : "No epic selected",
+			disabledReason: selectedEpic ? null : "Select an epic first.",
+			shortcut: "o",
+			run: actions.selectedSectionOpenInBrowser,
 		}),
 		defineCommand({
 			id: "app.quit",

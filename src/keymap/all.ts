@@ -61,6 +61,8 @@ export interface AppCtx {
 
 	// Always-on / app-level
 	readonly openCommandPalette: () => void
+	readonly switchSectionByNumber: (index: 1 | 2 | 3 | 4) => void
+	readonly nextSection: (delta: 1 | -1) => void
 	readonly handleQuitOrClose: () => void
 }
 
@@ -86,6 +88,12 @@ export const appKeymap = App(
 	// Always-on: command palette opener
 	{ id: "command.open", title: "Open command palette", keys: ["ctrl+p", "meta+k"], run: (s) => s.openCommandPalette() },
 	{ id: "command.open-help", title: "Open command palette", keys: ["?"], when: (s) => !s.textInputActive, run: (s) => s.openCommandPalette() },
+	{ id: "section.1", title: "Open merge requests", keys: ["1"], when: (s) => !s.textInputActive, run: (s) => s.switchSectionByNumber(1) },
+	{ id: "section.2", title: "Open workspace", keys: ["2"], when: (s) => !s.textInputActive, run: (s) => s.switchSectionByNumber(2) },
+	{ id: "section.3", title: "Open issues", keys: ["3"], when: (s) => !s.textInputActive, run: (s) => s.switchSectionByNumber(3) },
+	{ id: "section.4", title: "Open epics", keys: ["4"], when: (s) => !s.textInputActive, run: (s) => s.switchSectionByNumber(4) },
+	{ id: "section.next", title: "Next section", keys: ["tab"], when: (s) => !s.textInputActive, run: (s) => s.nextSection(1) },
+	{ id: "section.prev", title: "Previous section", keys: ["shift+tab"], when: (s) => !s.textInputActive, run: (s) => s.nextSection(-1) },
 
 	// Quit / close-active-modal — gated to "not editing text"
 	{

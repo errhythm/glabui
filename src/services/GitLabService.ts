@@ -1,8 +1,12 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import {
+	type EpicItem,
+	type EpicListMode,
 	type ApprovalRule,
 	type CheckRollupStatus,
 	type CreateMergeRequestCommentInput,
+	type IssueItem,
+	type IssueListMode,
 	type ListMergeRequestPageInput,
 	type Mergeable,
 	type MergeRequestComment,
@@ -256,6 +260,63 @@ const RawApprovalStateSchema = Schema.Struct({
 	),
 })
 
+const RawIssueSchema = Schema.Struct({
+	id: Schema.Number,
+	iid: Schema.Number,
+	title: Schema.String,
+	description: OptionalNullableString,
+	state: Schema.String,
+	created_at: Schema.String,
+	updated_at: OptionalNullableString,
+	closed_at: OptionalNullableString,
+	web_url: Schema.String,
+	author: RawUserSchema,
+	assignees: Schema.optionalKey(Schema.Array(RawUserSchema)),
+	labels: Schema.Array(RawLabelSchema),
+	milestone: Schema.optionalKey(Schema.NullOr(RawMilestoneSchema)),
+	user_notes_count: Schema.optionalKey(Schema.Number),
+	upvotes: Schema.optionalKey(Schema.Number),
+	downvotes: Schema.optionalKey(Schema.Number),
+	references: Schema.optionalKey(
+		Schema.Struct({
+			full: Schema.String,
+		}),
+	),
+})
+
+const RawIssueListSchema = Schema.Array(RawIssueSchema)
+
+const RawEpicSchema = Schema.Struct({
+	id: Schema.String,
+	iid: Schema.String,
+	title: Schema.String,
+	webUrl: Schema.String,
+	description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	labels: Schema.optionalKey(
+		Schema.Struct({
+			nodes: Schema.Array(
+				Schema.Struct({
+					title: Schema.String,
+				}),
+			),
+		}),
+	),
+})
+
+const toEpicItem = (raw: Schema.Schema.Type<typeof RawEpicSchema>, groupPath: string, issueCount: number, openIssueCount: number, closedIssueCount: number): EpicItem => ({
+	id: raw.id,
+	iid: raw.iid,
+	groupPath,
+	title: raw.title,
+	body: raw.description ?? "",
+	labels: raw.labels?.nodes.map((node) => node.title) ?? [],
+	url: raw.webUrl,
+	issueCount,
+	openIssueCount,
+	closedIssueCount,
+	detailLoaded: true,
+})
+
 const toDomainLabel = (label: Schema.Schema.Type<typeof RawLabelSchema>) =>
 	typeof label === "string"
 		? { name: label, color: null, textColor: null, description: null }
@@ -274,6 +335,29 @@ const toDomainMilestone = (milestone: Schema.Schema.Type<typeof RawMilestoneSche
 				dueDate: milestone.due_date ? new Date(milestone.due_date) : null,
 				webUrl: milestone.web_url ?? null,
 			}
+
+const toIssueItem = (raw: Schema.Schema.Type<typeof RawIssueSchema>, repository: string, primaryBranch: string | null): IssueItem => ({
+	repository,
+	author: raw.author.username,
+	assignees: (raw.assignees ?? []).map((u) => u.username),
+	labels: raw.labels.map(toDomainLabel),
+	milestone: toDomainMilestone(raw.milestone ?? null),
+	number: raw.iid,
+	title: raw.title,
+	body: raw.description ?? "",
+	state: raw.state === "closed" ? "closed" : "opened",
+	commentCount: raw.user_notes_count ?? 0,
+	upvotes: raw.upvotes ?? 0,
+	downvotes: raw.downvotes ?? 0,
+	createdAt: new Date(raw.created_at),
+	updatedAt: raw.updated_at ? new Date(raw.updated_at) : null,
+	closedAt: raw.closed_at ? new Date(raw.closed_at) : null,
+	url: raw.web_url,
+	projectUrl: raw.web_url.replace(/\/\/-\/issues\/.*$/, "") || null,
+	references: raw.references?.full ?? null,
+	primaryBranch,
+	detailLoaded: true,
+})
 
 // ── Conversion helpers ──────────────────────────────────────────────────────
 
@@ -359,6 +443,12 @@ const toMergeRequestItem = (raw: RawMergeRequest, repository: string, approvedBy
 
 const encodeProjectPath = (repository: string) => encodeURIComponent(repository)
 
+const glabProjectPathFromUrl = (url: string) =>
+	url
+		.replace(/^git@[^:]+:/, "")
+		.replace(/^https?:\/\/[^/]+\//, "")
+		.replace(/\.git$/, "")
+
 // ── Service interface ───────────────────────────────────────────────────────
 
 export interface GitLabDiff {
@@ -374,6 +464,24 @@ export class GitLabService extends Context.Service<
 		readonly getViewer: () => Effect.Effect<string, CommandError | JsonParseError | Schema.SchemaError>
 		readonly listMergeRequests: (input: ListMergeRequestPageInput) => Effect.Effect<MergeRequestPage, CommandError | JsonParseError | Schema.SchemaError>
 		readonly getMergeRequestDetail: (repository: string, number: number) => Effect.Effect<MergeRequestItem, CommandError | JsonParseError | Schema.SchemaError>
+		readonly listIssues: (input: {
+			mode: IssueListMode
+			repository: string | null
+			query: string
+			primaryBranches: Readonly<Record<string, string>>
+		}) => Effect.Effect<readonly IssueItem[], CommandError | JsonParseError | Schema.SchemaError>
+		readonly getIssueDetail: (repository: string, number: number, primaryBranch: string | null) => Effect.Effect<IssueItem, CommandError | JsonParseError | Schema.SchemaError>
+		readonly listEpics: (input: {
+			mode: EpicListMode
+			query: string
+			labelFilter: string | null
+			groupPath: string | null
+		}) => Effect.Effect<readonly EpicItem[], CommandError | JsonParseError | Schema.SchemaError>
+		readonly listEpicIssues: (
+			groupPath: string,
+			epicIid: string,
+			primaryBranches: Readonly<Record<string, string>>,
+		) => Effect.Effect<readonly IssueItem[], CommandError | JsonParseError | Schema.SchemaError>
 		readonly getMergeRequestMergeInfo: (input: { repository: string; number: number }) => Effect.Effect<MergeRequestMergeInfo, CommandError | JsonParseError | Schema.SchemaError>
 		readonly getMergeRequestDiff: (repository: string, number: number, commitId: string) => Effect.Effect<readonly GitLabDiff[], CommandError | JsonParseError | Schema.SchemaError>
 		readonly getMergeRequestComments: (repository: string, number: number) => Effect.Effect<readonly MergeRequestComment[], CommandError | JsonParseError | Schema.SchemaError>
@@ -552,6 +660,75 @@ export class GitLabService extends Context.Service<
 						url: raw.web_url,
 						projectUrl,
 					} satisfies MergeRequestItem
+				})
+
+			const listIssues = (input: { mode: IssueListMode; repository: string | null; query: string; primaryBranches: Readonly<Record<string, string>> }) =>
+				Effect.gen(function* () {
+					const username = yield* getCurrentUsername()
+					const encodedQuery = encodeURIComponent(input.query.trim())
+					const queryParam = input.query.trim().length > 0 ? `&search=${encodedQuery}` : ""
+					const loadIssuesForEndpoint = (endpoint: string) => runner.runSchema(RawIssueListSchema, "glab", ["api", endpoint])
+					const rawIssues = input.repository
+						? yield* loadIssuesForEndpoint(`projects/${encodeProjectPath(input.repository)}/issues?state=opened&per_page=100${queryParam}`)
+						: input.mode === "searchable"
+							? yield* loadIssuesForEndpoint(`issues?scope=all&per_page=100${queryParam}`)
+							: yield* Effect.all([
+									loadIssuesForEndpoint(`issues?scope=assigned_to_me&state=opened&per_page=100&assignee_username=${username}${queryParam}`).pipe(
+										Effect.catch(() => Effect.succeed([] as Schema.Schema.Type<typeof RawIssueSchema>[])),
+									),
+									loadIssuesForEndpoint(`issues?scope=created_by_me&state=opened&per_page=100&author_username=${username}${queryParam}`).pipe(
+										Effect.catch(() => Effect.succeed([] as Schema.Schema.Type<typeof RawIssueSchema>[])),
+									),
+								]).pipe(Effect.map(([assigned, authored]) => [...assigned, ...authored]))
+					const uniqueIssues = [...new Map(rawIssues.map((issue) => [issue.web_url, issue] as const)).values()]
+					return uniqueIssues.map((issue) => {
+						const repo = input.repository ?? issue.references?.full?.split("#")?.shift()?.trim() ?? glabProjectPathFromUrl(issue.web_url).replace(/\/-\/issues\/.*$/, "")
+						const issueKey = issue.references?.full ?? `${repo}#${issue.iid}`
+						return toIssueItem(issue, repo, input.primaryBranches[issueKey] ?? null)
+					})
+				})
+
+			const getIssueDetail = (repository: string, number: number, primaryBranch: string | null) =>
+				Effect.gen(function* () {
+					const endpoint = `projects/${encodeProjectPath(repository)}/issues/${number}`
+					const raw = yield* runner.runSchema(RawIssueSchema, "glab", ["api", endpoint])
+					return toIssueItem(raw, repository, primaryBranch)
+				})
+
+			const listEpics = (input: { mode: EpicListMode; query: string; labelFilter: string | null; groupPath: string | null }) =>
+				Effect.gen(function* () {
+					const username = yield* getCurrentUsername()
+					if (!input.groupPath) return [] as readonly EpicItem[]
+					const quoteGraphql = (value: string) => JSON.stringify(value)
+					const labelArg = input.labelFilter?.trim() ? `, labelName: ${quoteGraphql(input.labelFilter.trim())}` : ""
+					const assigneeArg = input.mode === "assigned" ? `, authorUsername: ${quoteGraphql(username)}` : ""
+					const searchArg = input.query.trim().length > 0 ? `, search: ${quoteGraphql(input.query.trim())}` : ""
+					const query = `query { group(fullPath: ${quoteGraphql(input.groupPath)}) { epics(first: 100, state: opened${assigneeArg}${labelArg}${searchArg}) { nodes { id iid title webUrl description labels { nodes { title } } } } } }`
+					const result = yield* runner.run("glab", ["api", "graphql", "-f", `query=${query}`])
+					const parsed = JSON.parse(result.stdout) as {
+						readonly data?: {
+							readonly group?: {
+								readonly epics?: {
+									readonly nodes?: readonly Schema.Schema.Type<typeof RawEpicSchema>[]
+								}
+							}
+						}
+					}
+					const nodes = parsed.data?.group?.epics?.nodes ?? []
+					return nodes.map((node) => toEpicItem(node, input.groupPath!, 0, 0, 0))
+				})
+
+			const listEpicIssues = (groupPath: string, epicIid: string, primaryBranches: Readonly<Record<string, string>>) =>
+				Effect.gen(function* () {
+					const endpoint = `groups/${encodeURIComponent(groupPath)}/epics/${epicIid}/issues?per_page=100`
+					const rawIssues = yield* runner
+						.runSchema(RawIssueListSchema, "glab", ["api", endpoint])
+						.pipe(Effect.catch(() => Effect.succeed([] as Schema.Schema.Type<typeof RawIssueSchema>[])))
+					return rawIssues.map((issue) => {
+						const repo = issue.references?.full?.split("#")?.shift()?.trim() ?? glabProjectPathFromUrl(issue.web_url).replace(/\/-\/issues\/.*$/, "")
+						const issueKey = issue.references?.full ?? `${repo}#${issue.iid}`
+						return toIssueItem(issue, repo, primaryBranches[issueKey] ?? null)
+					})
 				})
 
 			const getMergeRequestMergeInfo = (input: { repository: string; number: number }) =>
@@ -921,6 +1098,10 @@ export class GitLabService extends Context.Service<
 				getViewer,
 				listMergeRequests,
 				getMergeRequestDetail,
+				listIssues,
+				getIssueDetail,
+				listEpics,
+				listEpicIssues,
 				getMergeRequestMergeInfo,
 				getMergeRequestDiff,
 				getMergeRequestComments,

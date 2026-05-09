@@ -1,4 +1,5 @@
 import { Data } from "effect"
+import type { AppSection } from "../domain.js"
 import { colors } from "./colors.js"
 import { HintRow, type HintItem } from "./primitives.js"
 
@@ -26,6 +27,7 @@ interface HintsContext {
 	readonly loadingIndicator: string
 	readonly retryProgress: RetryProgress
 	readonly selectedPullRequestOpen: boolean
+	readonly section: AppSection
 }
 
 const filterEditingHints: readonly HintItem[] = [
@@ -56,6 +58,37 @@ const detailFullViewHints = (ctx: HintsContext): readonly HintItem[] => [
 	{ key: "shift-r", label: "approve", when: ctx.selectedPullRequestOpen },
 	{ key: "m", label: "merge", when: ctx.selectedPullRequestOpen },
 	{ key: "l", label: "labels", when: ctx.hasSelection },
+]
+
+const workspaceHints = (ctx: HintsContext): readonly HintItem[] => [
+	{ key: "/", label: "filter" },
+	{ key: "enter", label: "details", when: ctx.hasSelection },
+	{ key: "b", label: "branch", when: ctx.hasSelection },
+	{ key: "o", label: "browser", when: ctx.hasSelection },
+	{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
+	{ key: "1-4", label: "section" },
+	{ key: "ctrl-p", label: "commands" },
+]
+
+const issuesHints = (ctx: HintsContext): readonly HintItem[] => [
+	{ key: "/", label: "filter" },
+	{ key: "enter", label: "details", when: ctx.hasSelection },
+	{ key: "b", label: "primary", when: ctx.hasSelection },
+	{ key: "n", label: "branch", when: ctx.hasSelection },
+	{ key: "m", label: "mr", when: ctx.hasSelection },
+	{ key: "o", label: "browser", when: ctx.hasSelection },
+	{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
+	{ key: "1-4", label: "section" },
+]
+
+const epicsHints = (ctx: HintsContext): readonly HintItem[] => [
+	{ key: "/", label: "filter" },
+	{ key: "enter", label: "details", when: ctx.hasSelection },
+	{ key: "b", label: "checkout", when: ctx.hasSelection },
+	{ key: "m", label: "bulk mr", when: ctx.hasSelection },
+	{ key: "o", label: "browser", when: ctx.hasSelection },
+	{ key: "r", label: ctx.hasError ? "retry" : "refresh" },
+	{ key: "1-4", label: "section" },
 ]
 
 const commentsViewHints = (ctx: HintsContext): readonly HintItem[] => [
@@ -93,6 +126,9 @@ const footerHints = (ctx: HintsContext): readonly HintItem[] => {
 	if (ctx.commentsViewActive) return commentsViewHints(ctx)
 	if (ctx.diffFullView) return diffViewHints(ctx)
 	if (ctx.detailFullView) return detailFullViewHints(ctx)
+	if (ctx.section === "workspace") return workspaceHints(ctx)
+	if (ctx.section === "issues") return issuesHints(ctx)
+	if (ctx.section === "epics") return epicsHints(ctx)
 	return defaultHints(ctx)
 }
 

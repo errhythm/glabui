@@ -8,6 +8,7 @@ export interface CommandResult {
 
 export interface RunOptions {
 	readonly stdin?: string
+	readonly cwd?: string
 }
 
 export class CommandError extends Schema.TaggedErrorClass<CommandError>()("CommandError", {
@@ -43,11 +44,12 @@ export class CommandRunner extends Context.Service<
 	static readonly layer = Layer.effect(
 		CommandRunner,
 		Effect.gen(function* () {
-			const runProcess = Effect.fn("CommandRunner.runProcess")((command: string, args: readonly string[], stdin: string | undefined) =>
+			const runProcess = Effect.fn("CommandRunner.runProcess")((command: string, args: readonly string[], stdin: string | undefined, cwd: string | undefined) =>
 				Effect.tryPromise({
 					async try() {
 						const proc = Bun.spawn({
 							cmd: [command, ...args],
+							...(cwd ? { cwd } : {}),
 							stdin: stdin === undefined ? "ignore" : "pipe",
 							stdout: "pipe",
 							stderr: "pipe",
@@ -65,7 +67,7 @@ export class CommandRunner extends Context.Service<
 			)
 
 			const run = Effect.fn("CommandRunner.run")(function* (command: string, args: readonly string[], options?: RunOptions) {
-				const result = yield* runProcess(command, args, options?.stdin).pipe(
+				const result = yield* runProcess(command, args, options?.stdin, options?.cwd).pipe(
 					Effect.withSpan("ghui.command.runProcess", {
 						attributes: {
 							"process.command": command,

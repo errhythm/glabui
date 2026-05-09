@@ -2,6 +2,81 @@ import { Schema } from "effect"
 
 export type LoadStatus = "loading" | "ready" | "error"
 
+export const appSections = ["merge-requests", "workspace", "epics", "issues"] as const
+export type AppSection = (typeof appSections)[number]
+
+export const issueStates = ["opened", "closed"] as const
+export type IssueState = (typeof issueStates)[number]
+
+export const issueListModes = ["assigned", "searchable", "repository"] as const
+export type IssueListMode = (typeof issueListModes)[number]
+
+export const epicListModes = ["assigned", "searchable"] as const
+export type EpicListMode = (typeof epicListModes)[number]
+
+export interface IssueItem {
+	readonly repository: string
+	readonly author: string
+	readonly assignees: readonly string[]
+	readonly labels: readonly MergeRequestLabel[]
+	readonly milestone: MergeRequestMilestone | null
+	readonly number: number
+	readonly title: string
+	readonly body: string
+	readonly state: IssueState
+	readonly commentCount: number
+	readonly upvotes: number
+	readonly downvotes: number
+	readonly createdAt: Date
+	readonly updatedAt: Date | null
+	readonly closedAt: Date | null
+	readonly url: string
+	readonly projectUrl: string | null
+	readonly references: string | null
+	readonly primaryBranch: string | null
+	readonly detailLoaded: boolean
+}
+
+export interface EpicItem {
+	readonly id: string
+	readonly iid: string
+	readonly groupPath: string
+	readonly title: string
+	readonly body: string
+	readonly labels: readonly string[]
+	readonly url: string
+	readonly issueCount: number
+	readonly openIssueCount: number
+	readonly closedIssueCount: number
+	readonly detailLoaded: boolean
+}
+
+export interface WorkspaceRepo {
+	readonly id: string
+	readonly name: string
+	readonly path: string
+	readonly branch: string
+	readonly defaultBranch: string
+	readonly remoteUrl: string | null
+	readonly projectPath: string | null
+	readonly projectUrl: string | null
+	readonly isGitLab: boolean
+	readonly dirty: boolean
+	readonly dirtyCount: number
+	readonly ahead: number
+	readonly behind: number
+}
+
+export interface WorkspaceBranchSwitchResult {
+	readonly repoId: string
+	readonly repoName: string
+	readonly previousBranch: string
+	readonly nextBranch: string
+	readonly status: "switched" | "already-on" | "skipped" | "failed"
+	readonly message: string
+	readonly stashed: boolean
+}
+
 export const mergeRequestStates = ["open", "closed", "merged"] as const
 export type MergeRequestState = (typeof mergeRequestStates)[number]
 
